@@ -329,7 +329,7 @@ def batch_predict_ui(pipe, red_info, feat_cols, tgt, task, key):
 # 첫 화면 — 모드 선택
 # ----------------------------------------------------------------------------
 st.title("Automatic Machine Learning")
-st.caption("코딩 없이 버튼으로 돌리는 머신러닝 · 어떤 데이터든 같은 파이프라인으로 자동 처리")
+st.caption("코딩 없이 버튼으로 하는 머신러닝 · 어떤 데이터든 같은 파이프라인으로 자동 처리")
 
 if "mode" not in st.session_state:
     st.session_state.mode = None
@@ -450,8 +450,8 @@ if up is not None:
         df.columns = df.columns.astype(str)
     source = f"업로드: {up.name}"
 else:
-    st.info("왼쪽 사이드바에서 CSV 또는 Excel 파일을 올려주세요. "
-            "입력 변수(X) 열들과 예측할 타깃(Y) 열 하나로 만들면 됩니다.")
+    st.info("왼쪽 사이드바에 CSV 또는 Excel 파일을 올려주세요. "
+            "입력 변수(X) 열들과 예측할 타깃(Y) 1열로 만들어주세요.")
     st.stop()
 
 st.subheader("데이터 미리보기")
@@ -699,10 +699,10 @@ if errors:
 st.header("📊 예측 결과")
 st.markdown(
     "- **5-fold CV**: 데이터를 5등분해 번갈아 학습·검증한 평균 성능입니다. "
-    "운에 덜 흔들려 **모델의 일반적 실력**을 보여주며, "
-    "여기서는 모델 선택·저장 기준으로 씁니다.\n"
+    "비교적 운에 덜 흔들려 **모델의 일반적 실력**을 보여주며, "
+    "여기서는 모델 저장·예측 기준으로 씁니다.\n"
     "- **Test**: 전체 데이터 중 80%를 분리해 학습한 뒤, 학습에 전혀 쓰지 않은 "
-    "나머지 20%로 딱 한 번 평가한 성능으로, **새 데이터에 가까운 실제 모델 점검**입니다. "
+    "나머지 20%로 딱 한 번 평가한 성능으로, ** 실제 모델 점검**입니다. "
     "표본이 적으면 값이 크게 흔들릴 수 있습니다.")
 
 sort_col = "CV_R2" if task == "회귀" else "CV_F1"
