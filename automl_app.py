@@ -215,6 +215,42 @@ def _num(raw):
         return 0.0
 
 
+def compute_data_issues(df, features, target):
+    """학습 전 데이터 점검 — 문제 목록과 결측치 표를 반환."""
+    sub = df[features + [target]]
+    n = len(sub)
+    issues = []
+
+    miss = (sub.isna().mean() * 100).round(1)
+    miss = miss[miss > 0].sort_values(ascending=False)
+    high = miss[miss > 30]
+    if len(high):
+        issues.append(f"결측 30% 초과 열 {len(high)}개 — 제외·보완 권장: {list(high.index)[:5]}")
+
+    tmiss = int(df[target].isna().sum())
+    if tmiss:
+        issues.append(f"타깃 결측 {tmiss}개 — 해당 행은 학습에서 자동 제외됩니다.")
+
+    const = [c for c in features if sub[c].nunique(dropna=True) <= 1]
+    if const:
+        issues.append(f"값이 하나뿐인(상수) 열 {len(const)}개 — 예측에 무의미: {const[:5]}")
+
+    idlike = [c for c in features
+              if not pd.api.types.is_numeric_dtype(sub[c])
+              and sub[c].nunique(dropna=True) > 0.9 * n]
+    if idlike:
+        issues.append(f"거의 모든 값이 고유한 식별자 추정 열 — 입력에서 빼는 걸 권장: {idlike}")
+
+    dup = int(sub.duplicated().sum())
+    if dup:
+        issues.append(f"완전히 동일한 중복 행 {dup}개")
+
+    if len(spectral_columns(features)) < SPEC_MIN and len(features) > n:
+        issues.append(f"변수 수({len(features)})가 샘플 수({n})보다 많습니다 — "
+                      "과적합 위험(정규화 모델 권장)")
+    return issues, miss
+
+
 def render_centered(df, na_rep="-"):
     """표를 가운데 정렬해 표시. 열이 너무 많으면 성능상 기본 표로 대체."""
     if df.shape[1] > 25 or len(df) > 200:
@@ -491,6 +527,20 @@ if not features:
     st.warning("입력 변수를 하나 이상 선택하세요.")
     st.stop()
 
+# 학습 전 데이터 점검 (선택한 변수 기준)
+_issues, _miss = compute_data_issues(df, features, target)
+_dc_title = (f"🔍 데이터 점검 — ⚠️ 확인 {len(_issues)}건"
+             if _issues else "🔍 데이터 점검 — 이상 없음 ✅")
+with st.expander(_dc_title, expanded=bool(_issues)):
+    st.write(f"샘플 **{len(df)}행** · 입력 변수 **{len(features)}개** · 타깃 **{target}**")
+    if len(_miss):
+        st.write("결측치가 있는 열 (%)")
+        render_centered(_miss.rename_axis("열").reset_index(name="결측 %"))
+    for _m in _issues:
+        st.warning("⚠️ " + _m)
+    if not _issues:
+        st.success("특별한 데이터 이슈가 발견되지 않았습니다.")
+
 
 # ----------------------------------------------------------------------------
 # 학습 — 테스트(80/20) + 5-fold 교차검증
@@ -671,7 +721,7 @@ if run:
     st.session_state["result"] = run_training(df, features, target, task, preprocess)
 
 if "result" not in st.session_state:
-    st.info("왼쪽에서 변수를 고르고 **🚀 학습 시작**을 눌러주세요.")
+    st.info("왼쪽에서 변수 및 타깃을 고르고 **🚀 학습 시작**을 눌러주세요.")
     st.stop()
 
 (data, X, y, board, preds_store, test_store, fitted, num_cols, cat_cols,
