@@ -72,7 +72,7 @@ MODEL_DESC = {
     "Ridge": "릿지 — 계수를 규제해 과적합을 줄인 선형모델(변수 많을 때 강함)",
     "Lasso": "라쏘 — 불필요한 변수 계수를 0으로 만들어 변수 선택까지 하는 선형모델",
     "PLSR": "부분최소제곱 회귀 — 스펙트럼 분석의 표준, 상관 높은 변수를 잠재성분으로 압축",
-    "RandomForest": "랜덤포레스트 — 여러 결정트리를 평균내는 비선형 앙상블",
+    "RF": "랜덤포레스트 — 여러 결정트리를 평균내는 비선형 앙상블",
     "XGBoost": "XGBoost — 정규화·결측치 처리·병렬화가 강화된 고성능 부스팅",
     "SVR": "서포트벡터 회귀 — 여유폭 안의 오차는 무시하는 커널 기반 회귀",
     "SVC": "서포트벡터 분류 — 클래스 경계를 최대 마진으로 찾는 분류기",
@@ -163,7 +163,7 @@ def get_models(task, pls_nc=10):
             "Ridge": Ridge(),
             "Lasso": Lasso(),
             "PLSR": PLSR(n_components=pls_nc),
-            "RandomForest": RandomForestRegressor(n_estimators=300, random_state=0),
+            "RF": RandomForestRegressor(n_estimators=300, random_state=0),
             "XGBoost": XGBRegressor(n_estimators=300, random_state=0,
                                     verbosity=0, n_jobs=1),
             "SVR": SVR(),
@@ -173,7 +173,7 @@ def get_models(task, pls_nc=10):
         }
     return {
         "Logistic": LogisticRegression(max_iter=1000),
-        "RandomForest": RandomForestClassifier(n_estimators=300, random_state=0),
+        "RF": RandomForestClassifier(n_estimators=300, random_state=0),
         "XGBoost": XGBClassifierStr(n_estimators=300, random_state=0,
                                     verbosity=0, n_jobs=1),
         "SVC": SVC(probability=True),
@@ -329,7 +329,7 @@ def batch_predict_ui(pipe, red_info, feat_cols, tgt, task, key):
 # 첫 화면 — 모드 선택
 # ----------------------------------------------------------------------------
 st.title("Automatic Machine Learning")
-st.caption("코딩 없이 버튼으로 하는 머신러닝 · 어떤 데이터든 같은 파이프라인으로 자동 처리")
+st.caption("코딩 없이 버튼으로 돌리는 머신러닝 · 어떤 데이터든 같은 파이프라인으로 자동 처리")
 
 if "mode" not in st.session_state:
     st.session_state.mode = None
@@ -450,8 +450,8 @@ if up is not None:
         df.columns = df.columns.astype(str)
     source = f"업로드: {up.name}"
 else:
-    st.info("왼쪽 사이드바에 CSV 또는 Excel 파일을 올려주세요. "
-            "입력 변수(X) 열들과 예측할 타깃(Y) 1열로 만들어주세요.")
+    st.info("왼쪽 사이드바에서 CSV 또는 Excel 파일을 올려주세요. "
+            "입력 변수(X) 열들과 예측할 타깃(Y) 열 하나로 만들면 됩니다.")
     st.stop()
 
 st.subheader("데이터 미리보기")
@@ -614,6 +614,15 @@ def plot_pair(y_true, y_pred, task, name):
             ax.set_xlabel("Actual value", fontsize=AX_FS)
             ax.set_ylabel("Predicted value", fontsize=AX_FS)
             ax.set_title(name, fontsize=TITLE_FS)
+            # 논문용 통계 박스 (R2 · RMSE · RPD)
+            _rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+            _rpd = np.std(y_true, ddof=1) / _rmse if _rmse else float("nan")
+            ax.text(0.04, 0.96,
+                    f"$R^2$ = {r2_score(y_true, y_pred):.3f}\n"
+                    f"RMSE = {_rmse:.3g}\nRPD = {_rpd:.2f}",
+                    transform=ax.transAxes, va="top", ha="left",
+                    fontsize=AX_FS - 2,
+                    bbox=dict(boxstyle="round", fc="white", ec="0.7", alpha=0.85))
             st.pyplot(fig)
         with col2:
             fig, ax = plt.subplots()
@@ -699,10 +708,10 @@ if errors:
 st.header("📊 예측 결과")
 st.markdown(
     "- **5-fold CV**: 데이터를 5등분해 번갈아 학습·검증한 평균 성능입니다. "
-    "비교적 운에 덜 흔들려 **모델의 일반적 실력**을 보여주며, "
-    "여기서는 모델 저장·예측 기준으로 씁니다.\n"
+    "운에 덜 흔들려 **모델의 일반적 실력**을 보여주며, "
+    "여기서는 모델 선택·저장 기준으로 씁니다.\n"
     "- **Test**: 전체 데이터 중 80%를 분리해 학습한 뒤, 학습에 전혀 쓰지 않은 "
-    "나머지 20%로 딱 한 번 평가한 성능으로, ** 실제 모델 점검**입니다. "
+    "나머지 20%로 딱 한 번 평가한 성능으로, **새 데이터에 가까운 실제 모델 점검**입니다. "
     "표본이 적으면 값이 크게 흔들릴 수 있습니다.")
 
 sort_col = "CV_R2" if task == "회귀" else "CV_F1"
@@ -800,7 +809,7 @@ try:
                          "Importance")
     else:
         st.info("이 모델은 내장 중요도가 없고 변수가 많아, 중요도 그래프는 생략했습니다. "
-                "(Ridge/Lasso/RandomForest를 고르면 표시됩니다)")
+                "(Ridge/Lasso/RF를 고르면 표시됩니다)")
 except Exception as e:
     st.info(f"변수 중요도를 계산할 수 없습니다: {e}")
 
