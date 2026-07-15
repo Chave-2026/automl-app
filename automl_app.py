@@ -189,7 +189,8 @@ def build_preprocessor(X):
     num_pipe = Pipeline([("impute", SimpleImputer(strategy="median")),
                          ("scale", StandardScaler())])
     cat_pipe = Pipeline([("impute", SimpleImputer(strategy="most_frequent")),
-                         ("onehot", OneHotEncoder(handle_unknown="ignore"))])
+                         ("onehot", OneHotEncoder(handle_unknown="ignore",
+                                                  sparse_output=False))])
     return ColumnTransformer([("num", num_pipe, num_cols),
                               ("cat", cat_pipe, cat_cols)]), num_cols, cat_cols
 
