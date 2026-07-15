@@ -762,6 +762,16 @@ def _draw_importance(fnames, fvals, xlabel):
     st.pyplot(fig)
 
 
+def _to_original_feature(name, num_cols, cat_cols):
+    """원핫 확장 컬럼명을 원래 입력 변수 이름으로 되돌린다."""
+    if name in num_cols:
+        return name
+    for c in cat_cols:                     # 'Sample ID_SMP_011' -> 'Sample ID'
+        if name == c or name.startswith(c + "_"):
+            return c
+    return name
+
+
 try:
     pre_step = best_pipe.named_steps["pre"]
     try:
@@ -777,7 +787,11 @@ try:
         vals, xlab = best_model.feature_importances_, "Importance"
 
     if vals is not None and len(vals) == len(names):
-        _draw_importance(names, vals, xlab)
+        # 원핫 더미(Sample ID_SMP_001 …)를 원래 변수 하나로 합침
+        origin = [_to_original_feature(n, num_cols, cat_cols) for n in names]
+        agg = (pd.DataFrame({"f": origin, "v": vals})
+               .groupby("f", as_index=False)["v"].sum())
+        _draw_importance(agg["f"].to_numpy(), agg["v"].to_numpy(), xlab)
     elif X.shape[1] <= 30:
         scoring = "r2" if task == "회귀" else "accuracy"
         pi = permutation_importance(best_pipe, X, y, n_repeats=10,
