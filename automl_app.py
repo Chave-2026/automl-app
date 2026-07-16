@@ -500,11 +500,12 @@ with st.sidebar:
     feature_candidates = [c for c in df.columns if c != target]
     features = st.multiselect("입력 변수", feature_candidates, default=feature_candidates)
 
+    # 숫자형 타깃은 기본 회귀, 문자형이거나 값이 2종뿐이면 분류로 자동 판별
     y_raw = df[target]
-    auto_task = "회귀"
-    if (y_raw.dtype == object) or (y_raw.nunique() <= max(10, int(0.05 * len(y_raw)))
-                                   and y_raw.nunique() <= 15):
+    if (not pd.api.types.is_numeric_dtype(y_raw)) or y_raw.nunique(dropna=True) <= 2:
         auto_task = "분류"
+    else:
+        auto_task = "회귀"
     st.header("3) 문제 유형")
     task = st.radio("자동 판별됨 (필요시 변경)", ["회귀", "분류"],
                     index=0 if auto_task == "회귀" else 1)
@@ -563,12 +564,41 @@ def run_training(df, features, target, task, preprocess):
     pls_nc = max(2, min(10, X.shape[1], int(len(X) * 0.6)))
     models = get_models(task, pls_nc)
 
-    strat = y if task == "분류" else None
-    Xtr, Xte, ytr, yte = train_test_split(
-        X, y, test_size=TEST_SIZE, random_state=0, stratify=strat)
-    cv = (StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=0)
-          if task == "분류" else
-          KFold(n_splits=CV_FOLDS, shuffle=True, random_state=0))
+    # 분류: 표본 상황에 맞춰 층화 분할/교차검증을 자동 조정하고 이유를 안내
+    if task == "분류":
+        vc = pd.Series(y).value_counts()
+        min_count, n_classes = int(vc.min()), len(vc)
+        notes = []
+        # 홀드아웃: 층화 시도 → 불가하면 무작위 분할로 대체
+        try:
+            Xtr, Xte, ytr, yte = train_test_split(
+                X, y, test_size=TEST_SIZE, random_state=0, stratify=y)
+        except ValueError:
+            Xtr, Xte, ytr, yte = train_test_split(
+                X, y, test_size=TEST_SIZE, random_state=0, stratify=None)
+            notes.append(
+                f"클래스가 {n_classes}종인데 Test(20%) 표본 수가 그보다 적어, 각 클래스를 "
+                "Test에 고르게 나눠 담는 '층화 분할'이 불가능합니다 → Test 분할을 무작위로 했습니다.")
+        # 교차검증: 가장 적은 클래스 표본 수에 맞춰 fold 수를 조정
+        if min_count >= 2:
+            n_splits = min(CV_FOLDS, min_count)
+            cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=0)
+            if n_splits < CV_FOLDS:
+                notes.append(
+                    f"가장 적은 클래스의 표본이 {min_count}개뿐이라(각 fold에 최소 1개씩 필요), "
+                    f"교차검증을 {CV_FOLDS}-fold 대신 {n_splits}-fold로 줄였습니다.")
+        else:
+            cv = KFold(n_splits=min(CV_FOLDS, len(y)), shuffle=True, random_state=0)
+            notes.append(
+                "표본이 1개뿐인 클래스가 있어 층화 교차검증이 불가 → 일반 교차검증으로 대체했습니다. "
+                "타깃이 연속형(예: 날짜·농도)이면 '회귀'가 더 적합할 수 있습니다.")
+        if notes:
+            st.info("ℹ️ **분류 설정 자동 조정 안내**\n\n"
+                    + "\n\n".join("- " + m for m in notes))
+    else:
+        Xtr, Xte, ytr, yte = train_test_split(
+            X, y, test_size=TEST_SIZE, random_state=0)
+        cv = KFold(n_splits=CV_FOLDS, shuffle=True, random_state=0)
 
     rows, preds_store, test_store, fitted, errors = [], {}, {}, {}, []
     t0 = time.time()
