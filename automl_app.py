@@ -51,7 +51,8 @@ from sklearn.exceptions import ConvergenceWarning
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 # 우측 상단 기본 실행 아이콘(Running man 등) 숨김 — 대신 아래 진행바로 시간을 표시
-st.markdown('<style>[data-testid="stStatusWidget"]{visibility:hidden;}</style>',
+st.markdown('<style>[data-testid="stStatusWidget"]{visibility:hidden;}'
+            '[data-testid="stHeaderActionElements"]{display:none;}</style>',
             unsafe_allow_html=True)
 
 # 그래프: Times New Roman + 마이너스 기호 정상화 + 축/제목 글씨 크기
