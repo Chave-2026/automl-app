@@ -364,7 +364,7 @@ def batch_predict_ui(pipe, red_info, feat_cols, tgt, task, key):
 # ----------------------------------------------------------------------------
 # 첫 화면 — 모드 선택
 # ----------------------------------------------------------------------------
-st.title("Automatic Machine Learning")
+st.title("Automatic Screemomg for Machine Learning")
 st.caption("코딩 없이 버튼으로 돌리는 머신러닝 · 어떤 데이터든 같은 파이프라인으로 자동 처리")
 
 if "mode" not in st.session_state:
