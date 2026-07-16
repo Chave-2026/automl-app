@@ -44,7 +44,7 @@ from sklearn.metrics import (
     accuracy_score, f1_score, confusion_matrix,
 )
 
-st.set_page_config(page_title="Automatic Machine Learning", page_icon="🧪", layout="wide")
+st.set_page_config(page_title="Automatic Screening for Machine Learning", page_icon="🧪", layout="wide")
 
 # ANN(MLP) 등에서 나오는 수렴 경고는 결과에 영향 없어 숨김 (로그 정리용)
 from sklearn.exceptions import ConvergenceWarning
@@ -364,7 +364,7 @@ def batch_predict_ui(pipe, red_info, feat_cols, tgt, task, key):
 # ----------------------------------------------------------------------------
 # 첫 화면 — 모드 선택
 # ----------------------------------------------------------------------------
-st.title("Automatic Screemomg for Machine Learning")
+st.title("Automatic Screening for Machine Learning")
 st.caption("코딩 없이 버튼으로 돌리는 머신러닝 · 어떤 데이터든 같은 파이프라인으로 자동 처리")
 
 if "mode" not in st.session_state:
