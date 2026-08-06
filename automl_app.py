@@ -56,9 +56,11 @@ st.markdown('<style>[data-testid="stStatusWidget"]{visibility:hidden;}'
             '[data-testid="stHeaderActionElements"]{display:none;}</style>',
             unsafe_allow_html=True)
 
-# 그래프: Times New Roman + 마이너스 기호 정상화 + 축/제목 글씨 크기
+# 그래프 폰트: 로컬(윈도우)은 Times New Roman, 웹(리눅스)은 이와 거의 동일한
+# Liberation Serif로 대체 (packages.txt로 설치). 둘 다 없으면 DejaVu Serif.
 plt.rcParams["font.family"] = "serif"
-plt.rcParams["font.serif"] = ["Times New Roman", "DejaVu Serif"]
+plt.rcParams["font.serif"] = ["Times New Roman", "Liberation Serif",
+                              "Nimbus Roman", "DejaVu Serif"]
 plt.rcParams["axes.unicode_minus"] = False
 AX_FS = 14        # 축 제목 크기
 TITLE_FS = 18     # 그래프 제목 크기
