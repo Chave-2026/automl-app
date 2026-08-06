@@ -12,6 +12,7 @@ FT-IR처럼 변수(파수)가 많은 스펙트럼은 변수 1000개 이하가 �
 
 import io
 import math
+import re
 import time
 import warnings
 import numpy as np
@@ -216,6 +217,15 @@ def _num(raw):
         return 0.0
 
 
+def _int_clamp(s, default, lo, hi):
+    """문자열을 정수로 파싱하고 [lo, hi] 범위로 보정. 실패 시 default."""
+    try:
+        v = int(round(float(s)))
+    except (ValueError, TypeError):
+        return default
+    return max(lo, min(v, hi))
+
+
 def compute_data_issues(df, features, target):
     """학습 전 데이터 점검 — 문제 목록과 결측치 표를 반환."""
     sub = df[features + [target]]
@@ -267,6 +277,28 @@ def render_centered(df, na_rep="-"):
            ]))
     st.markdown(f'<div style="overflow-x:auto;">{sty.to_html()}</div>',
                 unsafe_allow_html=True)
+
+
+def _read_tsv_spectrum(f):
+    """FT-IR .tsv 1개 → (Wavenumber, Intensity) DataFrame. 헤더 유무와 무관하게 처리."""
+    df = pd.read_csv(f, sep="\t", header=None, names=["Wavenumber", "Intensity"])
+    df["Wavenumber"] = pd.to_numeric(df["Wavenumber"], errors="coerce")
+    df["Intensity"] = pd.to_numeric(df["Intensity"], errors="coerce")
+    return df.dropna(subset=["Wavenumber", "Intensity"])
+
+
+def ftir_specs_to_excel(spectra, wn_min, wn_max, round_dec=1):
+    """미리 읽어둔 (샘플명, 스펙트럼DF) 목록 → 행=샘플·열=파수 의 ML용 표로 변환.
+    (기존 FTIR_data_mining.py 로직 기반) 타깃 열은 사용자가 이후 직접 추가."""
+    frames = []
+    for name, df in spectra:
+        d = df[(df["Wavenumber"] >= wn_min) & (df["Wavenumber"] <= wn_max)].copy()
+        d["Wavenumber"] = d["Wavenumber"].round(round_dec)
+        d = d.groupby("Wavenumber").mean()
+        d.columns = [name]
+        frames.append(d)
+    merged = pd.concat(frames, axis=1).sort_index(ascending=False)
+    return merged.T.reset_index(names="Sample_ID")
 
 
 def _read_table(upload):
@@ -376,6 +408,18 @@ with st.sidebar:
             st.session_state.pop("mode", None)
             st.session_state.pop("result", None)
             st.rerun()
+    if st.session_state.mode in ("ftir_convert", "ftir_graph"):
+        st.markdown("**FT-IR 도구**")
+        if st.button("엑셀로 변환", width="stretch", key="nav_ftir_conv",
+                     type="primary" if st.session_state.mode == "ftir_convert"
+                     else "secondary"):
+            st.session_state.mode = "ftir_convert"
+            st.rerun()
+        if st.button("그래프 가공하기", width="stretch", key="nav_ftir_graph",
+                     type="primary" if st.session_state.mode == "ftir_graph"
+                     else "secondary"):
+            st.session_state.mode = "ftir_graph"
+            st.rerun()
 
 if st.session_state.mode is None:
     # 이 화면에서만 주입되는 랜딩 전용 스타일 (컬럼을 카드처럼)
@@ -399,6 +443,12 @@ if st.session_state.mode is None:
     .aml-hero p  { color:#EAF6EF; margin:0; font-size:0.98rem; }
     .aml-card-emoji { font-size:2.2rem; line-height:1; }
     .aml-card-title { font-size:1.25rem; font-weight:700; margin:8px 0 6px 0;
+                      color:#20302A; }
+    .aml-tools-title { margin:34px 0 6px 0; font-size:1.1rem; font-weight:700;
+                       color:#20302A; }
+    .aml-tools-sub { color:#6A7A72; font-size:0.86rem; margin-bottom:6px; }
+    .aml-tool-emoji { font-size:1.5rem; line-height:1; }
+    .aml-tool-title { font-size:1rem; font-weight:700; margin:3px 0 1px 0;
                       color:#20302A; }
     </style>
     """, unsafe_allow_html=True)
@@ -429,6 +479,35 @@ if st.session_state.mode is None:
             st.session_state.mode = "predict"
             st.rerun()
 
+    # ── 보조 도구 (측정 데이터 → ML용 Excel 변환) ──
+    st.markdown('<div class="aml-tools-title"> 보조 도구 — 측정 데이터를 ML용 Excel로 변환</div>'
+                '<div class="aml-tools-sub">장비가 내보낸 자료를 머신러닝에 바로 쓸 수 있는 파일로 바꿔줍니다.</div>',
+                unsafe_allow_html=True)
+    t1, t2, t3, t4 = st.columns(4, gap="medium")
+    with t1:
+        st.markdown('<div class="aml-tool-emoji">📈</div>'
+                    '<div class="aml-tool-title">FT-IR</div>', unsafe_allow_html=True)
+        st.caption(".tsv → .xlsx")
+        if st.button("변환하기", key="tool_ftir", width="stretch"):
+            st.session_state.mode = "ftir_convert"
+            st.rerun()
+    with t2:
+        st.markdown('<div class="aml-tool-emoji">👃</div>'
+                    '<div class="aml-tool-title">전자코</div>', unsafe_allow_html=True)
+        st.caption("준비 중")
+        st.button("준비 중", key="tool_enose", disabled=True, width="stretch")
+    with t3:
+        st.markdown('<div class="aml-tool-emoji">🧪</div>'
+                    '<div class="aml-tool-title">HPLC</div>', unsafe_allow_html=True)
+        st.caption("준비 중")
+        st.button("준비 중", key="tool_hplc", disabled=True, width="stretch")
+    with t4:
+        st.markdown('<div class="aml-tool-emoji">⚗️</div>'
+                    '<div class="aml-tool-title">GC</div>', unsafe_allow_html=True)
+        st.caption("준비 중")
+        st.button("준비 중", key="tool_gc", disabled=True, width="stretch")
+
+    st.markdown('<div style="height:70px"></div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="position:fixed; left:0; right:0; bottom:0; width:100%; '
         'box-sizing:border-box; background:#e6f4d8; color:#243024; '
@@ -463,6 +542,127 @@ if st.session_state.mode == "predict":
     lred = bundle.get("reduce_info", {"orig_features": lfeat, "factor": 1})
     st.success(f"불러온 모델 · 타깃 **{ltgt}** · 유형 **{ltask}** · 입력 변수 {len(lfeat)}개")
     batch_predict_ui(lp, lred, lfeat, ltgt, ltask, key="load_batch")
+    st.stop()
+
+
+# ----------------------------------------------------------------------------
+# 보조 도구 — FT-IR .tsv → ML용 Excel 변환
+# ----------------------------------------------------------------------------
+if st.session_state.mode == "ftir_convert":
+    st.header("📈 FT-IR 머신러닝 데이터 변환")
+    st.write("FT-IR에서 내보낸 .tsv 파일들을 올리면, "
+             "**행=샘플 · 열=파수** 형태의 머신러닝용 Excel 파일로 변환합니다.")
+    files = st.file_uploader("FT-IR .tsv 파일 (여러 개 선택 가능)",
+                             type=["tsv", "txt", "csv"], accept_multiple_files=True)
+    if not files:
+        st.info("변환할 .tsv 파일을 올려주세요.")
+        st.stop()
+
+    # 파일을 읽어 실제 파수 범위를 파악 → 최소/최대 기본값 자동 설정
+    spectra = []
+    for f in files:
+        d = _read_tsv_spectrum(f)
+        if len(d):
+            spectra.append((f.name.rsplit(".", 1)[0], d))
+    if not spectra:
+        st.error("유효한 스펙트럼 데이터를 읽지 못했습니다.")
+        st.stop()
+    all_wn = np.concatenate([d["Wavenumber"].to_numpy() for _, d in spectra])
+    data_lo, data_hi = int(np.floor(all_wn.min())), int(np.ceil(all_wn.max()))
+
+    cc1, cc2 = st.columns(2)
+    wn_min = _int_clamp(cc1.text_input("최소 파수", value=str(data_lo)),
+                        data_lo, data_lo, data_hi)
+    wn_max = _int_clamp(cc2.text_input("최대 파수", value=str(data_hi)),
+                        data_hi, data_lo, data_hi)
+
+    if st.button("변환하기", type="primary"):
+        try:
+            with st.spinner("변환 중..."):
+                final = ftir_specs_to_excel(spectra, wn_min, wn_max)
+            st.success(f"완료! 샘플 {final.shape[0]}개 × 파수 {final.shape[1] - 1}개")
+            st.dataframe(final.head(10), width="stretch")
+            buf = io.BytesIO()
+            final.to_excel(buf, index=False)
+            st.download_button(
+                "💾 Excel 내려받기", buf.getvalue(), "FTIR_ML_data.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        except Exception as e:
+            st.error(f"변환 실패: {e}")
+    st.stop()
+
+
+# ----------------------------------------------------------------------------
+# 보조 도구 — FT-IR 그래프 가공하기 (.tsv 오버레이 · 범위/색상 조정)
+# ----------------------------------------------------------------------------
+if st.session_state.mode == "ftir_graph":
+    st.header("📈 FT-IR 그래프 가공하기")
+    st.write(".tsv 파일들을 올려 스펙트럼을 그립니다. 파수 범위·선 색상을 조정할 수 있습니다.")
+    gfiles = st.file_uploader(".tsv 파일 (여러 개 선택 가능)", type=["tsv", "txt", "csv"],
+                              accept_multiple_files=True, key="graph_files")
+    if not gfiles:
+        st.info(".tsv 파일을 올려주세요.")
+        st.stop()
+
+    specs = {}
+    for f in gfiles:
+        d = _read_tsv_spectrum(f).sort_values("Wavenumber")
+        if len(d):
+            specs[f.name.rsplit(".", 1)[0]] = d
+    if not specs:
+        st.error("유효한 스펙트럼 데이터를 읽지 못했습니다.")
+        st.stop()
+
+    all_wn = np.concatenate([d["Wavenumber"].to_numpy() for d in specs.values()])
+    all_y = np.concatenate([d["Intensity"].to_numpy() for d in specs.values()])
+    lo_i, hi_i = int(np.floor(all_wn.min())), int(np.ceil(all_wn.max()))
+
+    # Y축 종류: 측정 프로그램의 내보내기 설정(투과율/흡광도)에 따라 다름 → 사용자가 선택
+    ymode = st.radio("Y축 종류", ["Transmittance (%)", "Absorbance"],
+                     index=0 if np.nanmax(all_y) > 5 else 1, horizontal=True)
+    st.caption("측정 프로그램에서 내보낼 때 투과율(%T) 또는 흡광도(A)로 저장됩니다 — "
+               "본인 파일에 맞는 축을 고르세요.")
+
+    graph_slot = st.container()   # 그래프는 여기(Y축 종류 아래, 파수 범위 위)에 그림
+
+    # 파수 범위: 그래프와 동일 방향(왼쪽=높은 파수, 오른쪽=낮은 파수), 숫자만 직접 입력
+    st.write("표시 파수 범위 (cm⁻¹)")
+    cH, cL = st.columns(2)
+    x_high = _int_clamp(cH.text_input("왼쪽 끝", value=str(hi_i)), hi_i, lo_i, hi_i)
+    x_low = _int_clamp(cL.text_input("오른쪽 끝", value=str(lo_i)), lo_i, lo_i, hi_i)
+
+    LEGEND_LOC = {"우측 상단": "upper right", "좌측 상단": "upper left",
+                  "좌측 하단": "lower left", "우측 하단": "lower right"}
+    legend_pos = st.selectbox("범례 위치", list(LEGEND_LOC), index=0)
+
+    palette = ["#2CA02C", "#1F77B4", "#D62728", "#FF7F0E", "#9467BD",
+               "#8C564B", "#E377C2", "#7F7F7F", "#17BECF", "#BCBD22"]
+    styles, has_korean = {}, False
+    with st.expander("선 이름 · 색상", expanded=len(specs) <= 6):
+        for i, name in enumerate(specs):
+            a1, a2 = st.columns([3, 1])
+            disp = a1.text_input(f"이름 {i + 1}", value=name, key=f"gname_{i}")
+            col = a2.color_picker("색", value=palette[i % len(palette)], key=f"gcol_{i}")
+            styles[name] = (disp, col)
+            if re.search(r"[가-힣㄰-㆏]", disp):
+                has_korean = True
+    if has_korean:
+        st.warning("⚠️ 범례 이름에 한글이 있으면 그래프에서 글자가 깨집니다 "
+                   "(그래프 글씨체 Times New Roman은 한글 미지원). 영문으로 입력하세요.")
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for name, d in specs.items():
+        disp, col = styles[name]
+        ax.plot(d["Wavenumber"], d["Intensity"], color=col, linewidth=1.0, label=disp)
+    ax.set_xlim(max(x_high, x_low), min(x_high, x_low))   # 높은 파수 왼쪽 (FT-IR 관례)
+    ax.set_xlabel("Wavenumber (cm⁻¹)", fontsize=AX_FS)
+    ax.set_ylabel(ymode, fontsize=AX_FS)
+    ax.tick_params(axis="both", labelsize=12)
+    leg = ax.legend(fontsize=12, loc=LEGEND_LOC[legend_pos])
+    leg.get_frame().set_linewidth(0)
+    fig.tight_layout()
+    with graph_slot:
+        st.pyplot(fig)
     st.stop()
 
 
