@@ -58,6 +58,15 @@ st.markdown('<style>[data-testid="stStatusWidget"]{visibility:hidden;}'
 
 # 그래프 폰트: 로컬(윈도우)은 Times New Roman, 웹(리눅스)은 이와 거의 동일한
 # Liberation Serif로 대체 (packages.txt로 설치). 둘 다 없으면 DejaVu Serif.
+# ↳ 리눅스에서 설치된 Liberation Serif를 경로로 직접 등록해 폰트 캐시 문제를 우회.
+import glob as _glob
+from matplotlib import font_manager as _fm
+for _fp in _glob.glob("/usr/share/fonts/**/LiberationSerif*.ttf", recursive=True):
+    try:
+        _fm.fontManager.addfont(_fp)
+    except Exception:
+        pass
+
 plt.rcParams["font.family"] = "serif"
 plt.rcParams["font.serif"] = ["Times New Roman", "Liberation Serif",
                               "Nimbus Roman", "DejaVu Serif"]
