@@ -56,20 +56,11 @@ st.markdown('<style>[data-testid="stStatusWidget"]{visibility:hidden;}'
             '[data-testid="stHeaderActionElements"]{display:none;}</style>',
             unsafe_allow_html=True)
 
-# 그래프 폰트: 로컬(윈도우)은 Times New Roman, 웹(리눅스)은 이와 거의 동일한
-# Liberation Serif로 대체 (packages.txt로 설치). 둘 다 없으면 DejaVu Serif.
-# ↳ 리눅스에서 설치된 Liberation Serif를 경로로 직접 등록해 폰트 캐시 문제를 우회.
-import glob as _glob
-from matplotlib import font_manager as _fm
-for _fp in _glob.glob("/usr/share/fonts/**/LiberationSerif*.ttf", recursive=True):
-    try:
-        _fm.fontManager.addfont(_fp)
-    except Exception:
-        pass
-
+# 그래프 폰트: 로컬은 Times New Roman, 웹(리눅스)은 Times 계열 내장 폰트 STIXGeneral로
+# 대체(설치 불필요). 위첨자(cm^-1 등)는 mathtext(STIX)로 그려 어떤 폰트에서도 안 깨짐.
 plt.rcParams["font.family"] = "serif"
-plt.rcParams["font.serif"] = ["Times New Roman", "Liberation Serif",
-                              "Nimbus Roman", "DejaVu Serif"]
+plt.rcParams["font.serif"] = ["Times New Roman", "STIXGeneral", "DejaVu Serif"]
+plt.rcParams["mathtext.fontset"] = "stix"
 plt.rcParams["axes.unicode_minus"] = False
 AX_FS = 14        # 축 제목 크기
 TITLE_FS = 18     # 그래프 제목 크기
@@ -666,7 +657,7 @@ if st.session_state.mode == "ftir_graph":
         disp, col = styles[name]
         ax.plot(d["Wavenumber"], d["Intensity"], color=col, linewidth=1.0, label=disp)
     ax.set_xlim(max(x_high, x_low), min(x_high, x_low))   # 높은 파수 왼쪽 (FT-IR 관례)
-    ax.set_xlabel("Wavenumber (cm⁻¹)", fontsize=AX_FS)
+    ax.set_xlabel("Wavenumber (cm$^{-1}$)", fontsize=AX_FS)
     ax.set_ylabel(ymode, fontsize=AX_FS)
     ax.tick_params(axis="both", labelsize=12)
     leg = ax.legend(fontsize=12, loc=LEGEND_LOC[legend_pos])
