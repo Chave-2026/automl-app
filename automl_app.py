@@ -480,7 +480,7 @@ if st.session_state.mode is None:
             st.rerun()
 
     # ── 보조 도구 (측정 데이터 → ML용 Excel 변환) ──
-    st.markdown('<div class="aml-tools-title"> 보조 도구 — 측정 데이터를 ML용 Excel로 변환</div>'
+    st.markdown('<div class="aml-tools-title"> 보조 도구 — 측정 스펙트럼 데이터를 Excel로 변환</div>'
                 '<div class="aml-tools-sub">장비가 내보낸 자료를 머신러닝에 바로 쓸 수 있는 파일로 바꿔줍니다.</div>',
                 unsafe_allow_html=True)
     t1, t2, t3, t4 = st.columns(4, gap="medium")
