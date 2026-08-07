@@ -506,7 +506,7 @@ if st.session_state.mode is None:
         st.markdown('<div class="aml-tool-emoji">👃</div>'
                     '<div class="aml-tool-title">전자코</div>', unsafe_allow_html=True)
         st.caption(".txt → .xlsx")
-        if st.button("열기", key="tool_enose", width="stretch"):
+        if st.button("변환하기", key="tool_enose", width="stretch"):
             st.session_state.mode = "enose"
             st.rerun()
     with t3:
