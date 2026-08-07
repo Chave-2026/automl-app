@@ -290,13 +290,17 @@ def _read_tsv_spectrum(f):
 
 
 def parse_enose_txt(file):
-    """전자코 모음 .txt(탭 구분, 피크 면적) → 행=샘플·열=피크 DataFrame."""
+    """전자코 모음 .txt(탭 구분, 피크 면적) → 행=샘플·열=피크 DataFrame.
+    샘플 ID 끝의 running 번호(_x)와 피크 컬럼의 '-Area' 접미사를 제거해 간결화."""
     try:
         df = pd.read_csv(file, sep="\t")
     except UnicodeDecodeError:
         file.seek(0)
         df = pd.read_csv(file, sep="\t", encoding="cp949")
-    return df.rename(columns={df.columns[0]: "Sample_ID"})
+    df = df.rename(columns={df.columns[0]: "Sample_ID"})
+    df["Sample_ID"] = df["Sample_ID"].astype(str).str.replace(r"_\d+$", "", regex=True)
+    df.columns = [c[:-5] if c.endswith("-Area") else c for c in df.columns]
+    return df
 
 
 def ftir_specs_to_excel(spectra, wn_min, wn_max, round_dec=1):
@@ -564,7 +568,7 @@ if st.session_state.mode == "predict":
 if st.session_state.mode == "ftir_convert":
     st.header("📈 FT-IR 머신러닝 데이터 변환")
     st.write("FT-IR에서 내보낸 .tsv 파일들을 올리면, "
-             "**행=샘플 · 열=파수** 형태의 머신러닝용 Excel 파일로 변환합니다.")
+             "**행=샘플 · 열=파수** 형태의 Excel 파일로 변환합니다.")
     files = st.file_uploader("FT-IR .tsv 파일 (여러 개 선택 가능)",
                              type=["tsv", "txt", "csv"], accept_multiple_files=True)
     if not files:
@@ -683,8 +687,8 @@ if st.session_state.mode == "ftir_graph":
 # 보조 도구 — 전자코 모음 피크 표 (TXT)
 # ----------------------------------------------------------------------------
 if st.session_state.mode == "enose":
-    st.header("전자코 — 데이터 추출")
-    st.write("전자코 프로그램에서 Export한 .txt 파일을 올리면, 행=샘플 · 열=피크 표로 보여줍니다.")
+    st.header("전자코 — 데이터 추출 (단일파일 X)")
+    st.write("Alphasoft에서 multivariate analysis을 통해 데이터를 합친 라이브러리를 .txt 로 Export 한 후 파일을 올리면, 행=샘플 · 열=피크 표로 보여줍니다.")
     tf = st.file_uploader("전자코 .txt 파일", type=["txt", "tsv", "csv"])
     if tf is None:
         st.info(".txt 파일을 올려주세요.")
@@ -694,12 +698,24 @@ if st.session_state.mode == "enose":
     except Exception as e:
         st.error(f"읽기 실패: {e}")
         st.stop()
-    st.success(f"샘플 {tdf.shape[0]}개 × 피크 {tdf.shape[1] - 1}개")
-    st.dataframe(tdf, width="stretch")
+
+    peak_cols = [c for c in tdf.columns if c != "Sample_ID"]
+    maxa = tdf[peak_cols].max(axis=0)            # 피크별 최대 면적
+
+    min_area = _num(st.text_input(
+        "노이즈 필터 — 최소 피크 면적 (최대 면적이 이 값 미만이면 제거)", value="0"))
+    keep = [c for c in peak_cols if maxa[c] >= min_area]
+    out = tdf[["Sample_ID"] + keep]
+    removed = len(peak_cols) - len(keep)
+    st.success(f"샘플 {out.shape[0]}개 · 피크 {len(keep)}개 유지"
+               + (f" (노이즈 {removed}개 제거)" if removed else ""))
+    st.dataframe(out, width="stretch")
+
+    base = tf.name.rsplit(".", 1)[0]
     buf = io.BytesIO()
-    tdf.to_excel(buf, index=False)
+    out.to_excel(buf, index=False)
     st.download_button(
-        "💾 Excel 내려받기", buf.getvalue(), "enose_peaks.xlsx",
+        "💾 Excel 내려받기", buf.getvalue(), f"{base}.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.stop()
 
