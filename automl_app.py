@@ -289,6 +289,16 @@ def _read_tsv_spectrum(f):
     return df.dropna(subset=["Wavenumber", "Intensity"])
 
 
+def parse_enose_txt(file):
+    """전자코 모음 .txt(탭 구분, 피크 면적) → 행=샘플·열=피크 DataFrame."""
+    try:
+        df = pd.read_csv(file, sep="\t")
+    except UnicodeDecodeError:
+        file.seek(0)
+        df = pd.read_csv(file, sep="\t", encoding="cp949")
+    return df.rename(columns={df.columns[0]: "Sample_ID"})
+
+
 def ftir_specs_to_excel(spectra, wn_min, wn_max, round_dec=1):
     """미리 읽어둔 (샘플명, 스펙트럼DF) 목록 → 행=샘플·열=파수 의 ML용 표로 변환.
     (기존 FTIR_data_mining.py 로직 기반) 타깃 열은 사용자가 이후 직접 추가."""
@@ -422,7 +432,6 @@ with st.sidebar:
                      else "secondary"):
             st.session_state.mode = "ftir_graph"
             st.rerun()
-
 if st.session_state.mode is None:
     # 이 화면에서만 주입되는 랜딩 전용 스타일 (컬럼을 카드처럼)
     st.markdown("""
@@ -496,8 +505,10 @@ if st.session_state.mode is None:
     with t2:
         st.markdown('<div class="aml-tool-emoji">👃</div>'
                     '<div class="aml-tool-title">전자코</div>', unsafe_allow_html=True)
-        st.caption("준비 중")
-        st.button("준비 중", key="tool_enose", disabled=True, width="stretch")
+        st.caption(".txt → .xlsx")
+        if st.button("열기", key="tool_enose", width="stretch"):
+            st.session_state.mode = "enose"
+            st.rerun()
     with t3:
         st.markdown('<div class="aml-tool-emoji">🧪</div>'
                     '<div class="aml-tool-title">HPLC</div>', unsafe_allow_html=True)
@@ -665,6 +676,31 @@ if st.session_state.mode == "ftir_graph":
     fig.tight_layout()
     with graph_slot:
         st.pyplot(fig)
+    st.stop()
+
+
+# ----------------------------------------------------------------------------
+# 보조 도구 — 전자코 모음 피크 표 (TXT)
+# ----------------------------------------------------------------------------
+if st.session_state.mode == "enose":
+    st.header("전자코 — 데이터 추출")
+    st.write("전자코 프로그램에서 Export한 .txt 파일을 올리면, 행=샘플 · 열=피크 표로 보여줍니다.")
+    tf = st.file_uploader("전자코 .txt 파일", type=["txt", "tsv", "csv"])
+    if tf is None:
+        st.info(".txt 파일을 올려주세요.")
+        st.stop()
+    try:
+        tdf = parse_enose_txt(tf)
+    except Exception as e:
+        st.error(f"읽기 실패: {e}")
+        st.stop()
+    st.success(f"샘플 {tdf.shape[0]}개 × 피크 {tdf.shape[1] - 1}개")
+    st.dataframe(tdf, width="stretch")
+    buf = io.BytesIO()
+    tdf.to_excel(buf, index=False)
+    st.download_button(
+        "💾 Excel 내려받기", buf.getvalue(), "enose_peaks.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.stop()
 
 
