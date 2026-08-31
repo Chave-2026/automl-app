@@ -749,9 +749,9 @@ if st.session_state.mode == "enose":
 # 보조 도구 — 전자코 단일 XML 좌표값 추출
 # ----------------------------------------------------------------------------
 if st.session_state.mode == "enose_xml":
-    st.header("전자코 — 데이터 추출 (단일 XML)")
-    st.write("전자코가 내보낸 .xml 파일을 올리면, "
-             "시간과 두개의 그래프 신호를 x,y 좌표값으로 추출합니다.")
+    st.header("전자코 — 데이터 추출 (개별 파일)")
+    st.write("Alphasoft에서 전자코 측정 결과 .xml 파일을 올리면, "
+             "두개 컬럼 그래프를 x,y 좌표값으로 추출합니다.")
     xf = st.file_uploader("전자코 .xml 파일", type=["xml"])
     if xf is None:
         st.info(".xml 파일을 올려주세요.")
