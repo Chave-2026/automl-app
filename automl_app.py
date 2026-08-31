@@ -583,8 +583,7 @@ if st.session_state.mode is None:
     .aml-tools-title { margin:34px 0 6px 0; font-size:1.1rem; font-weight:700;
                        color:#20302A; }
     .aml-tools-sub { color:#6A7A72; font-size:0.86rem; margin-bottom:6px; }
-    .aml-tool-emoji { font-size:1.5rem; line-height:1; }
-    .aml-tool-title { font-size:1rem; font-weight:700; margin:3px 0 1px 0;
+    .aml-tool-title { font-size:1.35rem; font-weight:700; margin:2px 0 4px 0;
                       color:#20302A; }
     </style>
     """, unsafe_allow_html=True)
@@ -621,29 +620,25 @@ if st.session_state.mode is None:
                 unsafe_allow_html=True)
     t1, t2, t3, t4 = st.columns(4, gap="medium")
     with t1:
-        st.markdown('<div class="aml-tool-emoji">📈</div>'
-                    '<div class="aml-tool-title">FT-IR</div>', unsafe_allow_html=True)
+        st.markdown('<div class="aml-tool-title">FT-IR</div>', unsafe_allow_html=True)
         st.caption(".tsv → .xlsx")
         if st.button("변환하기", key="tool_ftir", width="stretch"):
             st.session_state.mode = "ftir_convert"
             st.rerun()
     with t2:
-        st.markdown('<div class="aml-tool-emoji">👃</div>'
-                    '<div class="aml-tool-title">전자코</div>', unsafe_allow_html=True)
+        st.markdown('<div class="aml-tool-title">전자코</div>', unsafe_allow_html=True)
         st.caption(".xml or .txt → .xlsx")
         if st.button("변환하기", key="tool_enose", width="stretch"):
             st.session_state.mode = "enose_xml"
             st.rerun()
     with t3:
-        st.markdown('<div class="aml-tool-emoji">🧪</div>'
-                    '<div class="aml-tool-title">HPLC</div>', unsafe_allow_html=True)
+        st.markdown('<div class="aml-tool-title">HPLC</div>', unsafe_allow_html=True)
         st.caption(".csv → .xlsx")
         if st.button("변환하기", key="tool_hplc", width="stretch"):
             st.session_state.mode = "hplc"
             st.rerun()
     with t4:
-        st.markdown('<div class="aml-tool-emoji">⚗️</div>'
-                    '<div class="aml-tool-title">GC</div>', unsafe_allow_html=True)
+        st.markdown('<div class="aml-tool-title">GC</div>', unsafe_allow_html=True)
         st.caption(".csv → .xlsx")
         if st.button("변환하기", key="tool_gc", width="stretch"):
             st.session_state.mode = "gc"
