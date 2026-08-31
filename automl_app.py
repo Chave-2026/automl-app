@@ -316,6 +316,47 @@ def parse_enose_txt(file):
     return df
 
 
+def parse_gc_chromatograms(file):
+    """Agilent ChemStation CHROMTAB CSV(단일/다중) → {샘플명: (Time·Intensity DF)}.
+    각 샘플 블록: 헤더 → 메타데이터 → '"라벨: 이름.D..."' 제목 → Time,Intensity 반복."""
+    raw = file.getvalue().decode("utf-8", errors="replace")
+    blocks, current, rows = {}, None, []
+    for line in raw.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        m = re.match(r'^"[^"]*:\s+(.+?)\.D', s)   # 제목줄에서 샘플명 추출
+        if m:
+            if current and rows:
+                blocks[current] = pd.DataFrame(rows, columns=["Time", "Intensity"])
+            current, rows = m.group(1).strip(), []
+            continue
+        if s[0] == '"':                            # 헤더/메타데이터 줄 → 건너뜀
+            continue
+        parts = s.split(",")
+        if len(parts) >= 2:
+            try:
+                rows.append((float(parts[0]), float(parts[1])))
+            except ValueError:
+                continue
+    if current and rows:
+        blocks[current] = pd.DataFrame(rows, columns=["Time", "Intensity"])
+    return blocks
+
+
+def gc_to_matrix(blocks, round_dec=3):
+    """{샘플: Time·Intensity} → 행=샘플·열=머무름시간 의 ML용 매트릭스."""
+    frames = []
+    for name, d in blocks.items():
+        s = d.copy()
+        s["Time"] = s["Time"].round(round_dec)
+        s = s.groupby("Time")["Intensity"].mean()
+        s.name = name
+        frames.append(s)
+    merged = pd.concat(frames, axis=1).sort_index()
+    return merged.T.reset_index(names="Sample_ID")
+
+
 def ftir_specs_to_excel(spectra, wn_min, wn_max, round_dec=1):
     """미리 읽어둔 (샘플명, 스펙트럼DF) 목록 → 행=샘플·열=파수 의 ML용 표로 변환.
     (기존 FTIR_data_mining.py 로직 기반) 타깃 열은 사용자가 이후 직접 추가."""
@@ -546,8 +587,10 @@ if st.session_state.mode is None:
     with t4:
         st.markdown('<div class="aml-tool-emoji">⚗️</div>'
                     '<div class="aml-tool-title">GC</div>', unsafe_allow_html=True)
-        st.caption("준비 중")
-        st.button("준비 중", key="tool_gc", disabled=True, width="stretch")
+        st.caption(".csv → 크로마토그램 매트릭스")
+        if st.button("변환하기", key="tool_gc", width="stretch"):
+            st.session_state.mode = "gc"
+            st.rerun()
 
     st.markdown('<div style="height:70px"></div>', unsafe_allow_html=True)
     st.markdown(
@@ -769,6 +812,40 @@ if st.session_state.mode == "enose_xml":
     base = xf.name.rsplit(".", 1)[0]
     buf = io.BytesIO()
     edf.to_excel(buf, index=False)
+    st.download_button(
+        "💾 Excel 내려받기", buf.getvalue(), f"{base}.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.stop()
+
+
+# ----------------------------------------------------------------------------
+# 보조 도구 — GC 크로마토그램 → ML 매트릭스 (Agilent ChemStation CHROMTAB CSV)
+# ----------------------------------------------------------------------------
+if st.session_state.mode == "gc":
+    st.header("⚗️ GC — 크로마토그램 매트릭스")
+    st.write("ChemStation에서 **Export Data To CSV → Chromatogram**로 뽑은 CSV를 올리면, "
+             "**행=샘플 · 열=머무름시간(min)** 매트릭스로 만듭니다. (한 파일에 여러 샘플이 있어도 자동 분리)")
+    gf = st.file_uploader("GC 크로마토그램 CSV", type=["csv"])
+    if gf is None:
+        st.info("CHROMTAB CSV 파일을 올려주세요.")
+        st.stop()
+    try:
+        blocks = parse_gc_chromatograms(gf)
+    except Exception as e:
+        st.error(f"읽기 실패: {e}")
+        st.stop()
+    if not blocks:
+        st.error("크로마토그램 데이터를 찾지 못했습니다. "
+                 "(ChemStation 'Chromatogram' CSV가 맞는지 확인하세요)")
+        st.stop()
+    with st.spinner("매트릭스 구성 중..."):
+        final = gc_to_matrix(blocks)
+    st.success(f"샘플 {final.shape[0]}개 × 시간점 {final.shape[1] - 1}개")
+    st.dataframe(final.iloc[:, :30].head(10), width="stretch")
+    st.caption("(미리보기: 앞 30개 시간점만 표시)")
+    base = gf.name.rsplit(".", 1)[0]
+    buf = io.BytesIO()
+    final.to_excel(buf, index=False)
     st.download_button(
         "💾 Excel 내려받기", buf.getvalue(), f"{base}.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
