@@ -347,18 +347,19 @@ def parse_gc_chromatograms(file):
 
 def gc_to_matrix(blocks, tol=0.005, baseline=0.0):
     """{샘플: Time·Intensity} → 행=샘플·열=머무름시간 의 ML용 매트릭스.
-    tol: RT 허용오차(분) — 이 간격으로 시간 격자를 스냅해 샘플 간 미세차이를 병합.
-    baseline: 이 강도 미만 값은 0으로(베이스라인 제거)."""
-    frames = []
+    가장 긴 샘플의 시간축을 기준으로 나머지 샘플을 최근접(±tol분) 스냅 → 해상도 유지 +
+    샘플 간 미세한 RT 차이(0.001 등)를 자동 정렬. baseline 미만 값은 0으로 제거."""
+    series = {}
     for name, d in blocks.items():
         s = d.copy()
-        s["Time"] = ((s["Time"] / tol).round() * tol).round(4)   # 허용오차 격자로 스냅
-        s = s.groupby("Time")["Intensity"].mean()
-        s.name = name
-        frames.append(s)
+        s["Time"] = s["Time"].round(3)
+        series[name] = s.groupby("Time")["Intensity"].mean()
+    ref = max(series.values(), key=len).index                    # 기준 시간축
+    frames = [series[n].reindex(ref, method="nearest", tolerance=tol).rename(n)
+              for n in series]
     merged = pd.concat(frames, axis=1).sort_index()
     if baseline > 0:
-        merged = merged.mask(merged < baseline, 0.0)              # 베이스라인 이하 0
+        merged = merged.mask(merged < baseline, 0.0)
     return merged.T.reset_index(names="Sample_ID")
 
 
@@ -843,16 +844,10 @@ if st.session_state.mode == "gc":
         st.error("크로마토그램 데이터를 찾지 못했습니다. "
                  "(ChemStation 'Chromatogram' CSV가 맞는지 확인하세요)")
         st.stop()
-    oc1, oc2 = st.columns(2)
-    tol = _num(oc1.text_input("RT 허용오차 (분) — 이 간격으로 시간을 묶어 정렬",
-                              value="0.005"))
-    baseline = _num(oc2.text_input("베이스라인 제거 — 최소 강도 (이 값 미만은 0)",
-                                   value="0"))
-    log_y = st.checkbox("y축 로그 스케일 (베이스라인 위치를 보기 쉬움)", value=True)
-    if tol <= 0:
-        tol = 0.005
+    baseline = _num(st.text_input("베이스라인 제거 — 최소 강도 (이 값 미만은 0)",
+                                  value="0"))
     with st.spinner("처리 중..."):
-        raw = gc_to_matrix(blocks, tol=tol, baseline=0)   # 그래프용 원본
+        raw = gc_to_matrix(blocks, tol=0.005, baseline=0)   # RT 0.005 자동 정렬 · 그래프용 원본
     tcols = [c for c in raw.columns if c != "Sample_ID"]
     tvals = np.array([float(c) for c in tcols])
 
@@ -864,10 +859,8 @@ if st.session_state.mode == "gc":
         ax.plot(tvals, row[tcols].to_numpy(dtype=float),
                 color=palette[i % len(palette)], linewidth=0.7, label=row["Sample_ID"])
     if baseline > 0:
-        ax.axhline(baseline, color="red", linewidth=1.0, linestyle="--",
+        ax.axhline(baseline, color="red", linewidth=0.6, linestyle="--",
                    label=f"baseline = {baseline:g}")
-    if log_y:
-        ax.set_yscale("log")
     ax.set_xlabel("Retention time (min)", fontsize=AX_FS)
     ax.set_ylabel("Intensity", fontsize=AX_FS)
     ax.yaxis.set_major_formatter(EngFormatter())   # 1e7 대신 10M, 20M …
