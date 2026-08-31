@@ -847,16 +847,43 @@ if st.session_state.mode == "gc":
                               value="0.005"))
     baseline = _num(oc2.text_input("베이스라인 제거 — 최소 강도 (이 값 미만은 0)",
                                    value="0"))
+    drop_zero = st.checkbox("값이 전부 0인 시간점 열 제거 (베이스라인 제거 후 정리)",
+                            value=True)
     if tol <= 0:
         tol = 0.005
     with st.spinner("매트릭스 구성 중..."):
         final = gc_to_matrix(blocks, tol=tol, baseline=baseline)
-    st.success(f"샘플 {final.shape[0]}개 × 시간점 {final.shape[1] - 1}개")
-    st.dataframe(final.iloc[:, :30].head(10), width="stretch")
-    st.caption("(미리보기: 앞 30개 시간점만 표시)")
+
+    # 실시간 크로마토그램 그래프 (허용오차·베이스라인 효과를 바로 확인)
+    tcols = [c for c in final.columns if c != "Sample_ID"]
+    tvals = np.array([float(c) for c in tcols])
+    palette = ["#2CA02C", "#1F77B4", "#D62728", "#FF7F0E", "#9467BD",
+               "#8C564B", "#E377C2", "#7F7F7F", "#17BECF", "#BCBD22"]
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for i, (_, row) in enumerate(final.iterrows()):
+        ax.plot(tvals, row[tcols].to_numpy(dtype=float),
+                color=palette[i % len(palette)], linewidth=0.7, label=row["Sample_ID"])
+    ax.set_xlabel("Retention time (min)", fontsize=AX_FS)
+    ax.set_ylabel("Intensity", fontsize=AX_FS)
+    ax.tick_params(axis="both", labelsize=11)
+    leg = ax.legend(fontsize=10, loc="best")
+    leg.get_frame().set_linewidth(0)
+    fig.tight_layout()
+    st.pyplot(fig)
+
+    # 내보내기: 전부 0인 시간점 열 제거(선택)
+    export = final
+    if drop_zero:
+        num = final.drop(columns="Sample_ID")
+        keep = num.columns[(num.fillna(0) != 0).any(axis=0)]
+        export = final[["Sample_ID"] + list(keep)]
+    dropped = final.shape[1] - export.shape[1]
+    st.success(f"샘플 {export.shape[0]}개 × 시간점 {export.shape[1] - 1}개"
+               + (f" (0열 {dropped}개 제거)" if dropped else ""))
+
     base = gf.name.rsplit(".", 1)[0]
     buf = io.BytesIO()
-    final.to_excel(buf, index=False)
+    export.to_excel(buf, index=False)
     st.download_button(
         "💾 Excel 내려받기", buf.getvalue(), f"{base}.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
