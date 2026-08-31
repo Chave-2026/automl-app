@@ -850,22 +850,21 @@ if st.session_state.mode == "gc":
                                    value="0"))
     if tol <= 0:
         tol = 0.005
-    with st.spinner("매트릭스 구성 중..."):
-        final = gc_to_matrix(blocks, tol=tol, baseline=baseline)
+    with st.spinner("처리 중..."):
+        raw = gc_to_matrix(blocks, tol=tol, baseline=0)   # 그래프용 원본
+    tcols = [c for c in raw.columns if c != "Sample_ID"]
+    tvals = np.array([float(c) for c in tcols])
 
-    # 전부 0인 시간점 열은 항상 제거하고 그 결과를 내보냄
-    num = final.drop(columns="Sample_ID")
-    keep = list(num.columns[(num.fillna(0) != 0).any(axis=0)])
-    export = final[["Sample_ID"] + keep]
-
-    # 크로마토그램 그래프 — 내보낼 데이터 기준(베이스라인/시간점 변화가 그대로 반영됨)
-    tvals = np.array([float(c) for c in keep])
+    # 크로마토그램 그래프 — 원본은 고정, 베이스라인은 빨간 가로선으로 표시
     palette = ["#2CA02C", "#1F77B4", "#D62728", "#FF7F0E", "#9467BD",
                "#8C564B", "#E377C2", "#7F7F7F", "#17BECF", "#BCBD22"]
     fig, ax = plt.subplots(figsize=(10, 4))
-    for i, (_, row) in enumerate(export.iterrows()):
-        ax.plot(tvals, row[keep].to_numpy(dtype=float),
+    for i, (_, row) in enumerate(raw.iterrows()):
+        ax.plot(tvals, row[tcols].to_numpy(dtype=float),
                 color=palette[i % len(palette)], linewidth=0.7, label=row["Sample_ID"])
+    if baseline > 0:
+        ax.axhline(baseline, color="red", linewidth=1.2, linestyle="--",
+                   label=f"baseline = {baseline:g}")
     ax.set_xlabel("Retention time (min)", fontsize=AX_FS)
     ax.set_ylabel("Intensity", fontsize=AX_FS)
     ax.yaxis.set_major_formatter(EngFormatter())   # 1e7 대신 10M, 20M …
@@ -875,8 +874,14 @@ if st.session_state.mode == "gc":
     fig.tight_layout()
     st.pyplot(fig)
 
-    dropped = final.shape[1] - export.shape[1]
-    st.success(f"샘플 {export.shape[0]}개 × 시간점 {export.shape[1] - 1}개"
+    # 내보내기: 베이스라인 적용 + 전부 0인 시간점 열 제거
+    masked = raw[tcols]
+    if baseline > 0:
+        masked = masked.mask(masked < baseline, 0.0)
+    keep = [c for c in tcols if (masked[c].fillna(0) != 0).any()]
+    export = pd.concat([raw[["Sample_ID"]], masked[keep]], axis=1)
+    dropped = len(tcols) - len(keep)
+    st.success(f"샘플 {export.shape[0]}개 × 시간점 {len(keep)}개"
                + (f" (0열 {dropped}개 제거)" if dropped else ""))
 
     base = gf.name.rsplit(".", 1)[0]
