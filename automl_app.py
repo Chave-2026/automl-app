@@ -363,6 +363,55 @@ def gc_to_matrix(blocks, tol=0.005, baseline=0.0):
     return merged.T.reset_index(names="Sample_ID")
 
 
+def parse_hplc_csv(file):
+    """HPLC(Primaide/EZChrom) 단일 CSV → (Time·Intensity) DF. 헤더 없이 Time,Signal 2컬럼."""
+    df = pd.read_csv(file, header=None, names=["Time", "Intensity"])
+    df["Time"] = pd.to_numeric(df["Time"], errors="coerce")
+    df["Intensity"] = pd.to_numeric(df["Intensity"], errors="coerce")
+    return df.dropna(subset=["Time", "Intensity"])
+
+
+def render_chromatogram_matrix(blocks, out_base, xlabel="Retention time (min)"):
+    """크로마토그램 blocks({샘플:Time·Intensity}) 공용 처리: 그래프 + 베이스라인 + Excel."""
+    baseline = _num(st.text_input("베이스라인 제거 — 최소 강도 (이 값 미만은 0)", value="0"))
+    with st.spinner("처리 중..."):
+        raw = gc_to_matrix(blocks, tol=0.005, baseline=0)   # RT 0.005 자동 정렬 · 원본
+    tcols = [c for c in raw.columns if c != "Sample_ID"]
+    tvals = np.array([float(c) for c in tcols])
+
+    palette = ["#2CA02C", "#1F77B4", "#D62728", "#FF7F0E", "#9467BD",
+               "#8C564B", "#E377C2", "#7F7F7F", "#17BECF", "#BCBD22"]
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for i, (_, row) in enumerate(raw.iterrows()):
+        ax.plot(tvals, row[tcols].to_numpy(dtype=float),
+                color=palette[i % len(palette)], linewidth=0.7, label=row["Sample_ID"])
+    if baseline > 0:
+        ax.axhline(baseline, color="red", linewidth=0.6, linestyle="--",
+                   label=f"baseline = {baseline:g}")
+    ax.set_xlabel(xlabel, fontsize=AX_FS)
+    ax.set_ylabel("Intensity", fontsize=AX_FS)
+    ax.yaxis.set_major_formatter(EngFormatter())
+    ax.tick_params(axis="both", labelsize=11)
+    leg = ax.legend(fontsize=10, loc="best")
+    leg.get_frame().set_linewidth(0)
+    fig.tight_layout()
+    st.pyplot(fig)
+
+    masked = raw[tcols]
+    if baseline > 0:
+        masked = masked.mask(masked < baseline, 0.0)
+    keep = [c for c in tcols if (masked[c].fillna(0) != 0).any()]
+    export = pd.concat([raw[["Sample_ID"]], masked[keep]], axis=1)
+    dropped = len(tcols) - len(keep)
+    st.success(f"샘플 {export.shape[0]}개 × 시간점 {len(keep)}개"
+               + (f" (0열 {dropped}개 제거)" if dropped else ""))
+    buf = io.BytesIO()
+    export.to_excel(buf, index=False)
+    st.download_button(
+        "💾 Excel 내려받기", buf.getvalue(), f"{out_base}.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
 def ftir_specs_to_excel(spectra, wn_min, wn_max, round_dec=1):
     """미리 읽어둔 (샘플명, 스펙트럼DF) 목록 → 행=샘플·열=파수 의 ML용 표로 변환.
     (기존 FTIR_data_mining.py 로직 기반) 타깃 열은 사용자가 이후 직접 추가."""
@@ -581,19 +630,21 @@ if st.session_state.mode is None:
     with t2:
         st.markdown('<div class="aml-tool-emoji">👃</div>'
                     '<div class="aml-tool-title">전자코</div>', unsafe_allow_html=True)
-        st.caption(".xml 좌표값 / .txt 피크 표")
+        st.caption(".xml or .txt → .xlsx")
         if st.button("변환하기", key="tool_enose", width="stretch"):
             st.session_state.mode = "enose_xml"
             st.rerun()
     with t3:
         st.markdown('<div class="aml-tool-emoji">🧪</div>'
                     '<div class="aml-tool-title">HPLC</div>', unsafe_allow_html=True)
-        st.caption("준비 중")
-        st.button("준비 중", key="tool_hplc", disabled=True, width="stretch")
+        st.caption(".csv → .xlsx")
+        if st.button("변환하기", key="tool_hplc", width="stretch"):
+            st.session_state.mode = "hplc"
+            st.rerun()
     with t4:
         st.markdown('<div class="aml-tool-emoji">⚗️</div>'
                     '<div class="aml-tool-title">GC</div>', unsafe_allow_html=True)
-        st.caption(".csv → 크로마토그램 매트릭스")
+        st.caption(".csv → .xlsx")
         if st.button("변환하기", key="tool_gc", width="stretch"):
             st.session_state.mode = "gc"
             st.rerun()
@@ -828,9 +879,9 @@ if st.session_state.mode == "enose_xml":
 # 보조 도구 — GC 크로마토그램 → ML 매트릭스 (Agilent ChemStation CHROMTAB CSV)
 # ----------------------------------------------------------------------------
 if st.session_state.mode == "gc":
-    st.header("⚗️ GC — 크로마토그램 매트릭스")
-    st.write("ChemStation에서 **Export Data To CSV → Chromatogram**로 뽑은 CSV를 올리면, "
-             "**행=샘플 · 열=머무름시간(min)** 매트릭스로 만듭니다. (한 파일에 여러 샘플이 있어도 자동 분리)")
+    st.header("GC — 데이터 추출")
+    st.write("ChemStation에서 Chromatogram in R0을 CSV로 Export한 파일을 올리면, "
+             "행=샘플 · 열=머무름시간 매트릭스로 보여줍니다.")
     gf = st.file_uploader("GC 크로마토그램 CSV", type=["csv"])
     if gf is None:
         st.info("CHROMTAB CSV 파일을 올려주세요.")
@@ -844,48 +895,33 @@ if st.session_state.mode == "gc":
         st.error("크로마토그램 데이터를 찾지 못했습니다. "
                  "(ChemStation 'Chromatogram' CSV가 맞는지 확인하세요)")
         st.stop()
-    baseline = _num(st.text_input("베이스라인 제거 — 최소 강도 (이 값 미만은 0)",
-                                  value="0"))
-    with st.spinner("처리 중..."):
-        raw = gc_to_matrix(blocks, tol=0.005, baseline=0)   # RT 0.005 자동 정렬 · 그래프용 원본
-    tcols = [c for c in raw.columns if c != "Sample_ID"]
-    tvals = np.array([float(c) for c in tcols])
+    render_chromatogram_matrix(blocks, gf.name.rsplit(".", 1)[0])
+    st.stop()
 
-    # 크로마토그램 그래프 — 원본은 고정, 베이스라인은 빨간 가로선으로 표시
-    palette = ["#2CA02C", "#1F77B4", "#D62728", "#FF7F0E", "#9467BD",
-               "#8C564B", "#E377C2", "#7F7F7F", "#17BECF", "#BCBD22"]
-    fig, ax = plt.subplots(figsize=(10, 4))
-    for i, (_, row) in enumerate(raw.iterrows()):
-        ax.plot(tvals, row[tcols].to_numpy(dtype=float),
-                color=palette[i % len(palette)], linewidth=0.7, label=row["Sample_ID"])
-    if baseline > 0:
-        ax.axhline(baseline, color="red", linewidth=0.6, linestyle="--",
-                   label=f"baseline = {baseline:g}")
-    ax.set_xlabel("Retention time (min)", fontsize=AX_FS)
-    ax.set_ylabel("Intensity", fontsize=AX_FS)
-    ax.yaxis.set_major_formatter(EngFormatter())   # 1e7 대신 10M, 20M …
-    ax.tick_params(axis="both", labelsize=11)
-    leg = ax.legend(fontsize=10, loc="best")
-    leg.get_frame().set_linewidth(0)
-    fig.tight_layout()
-    st.pyplot(fig)
 
-    # 내보내기: 베이스라인 적용 + 전부 0인 시간점 열 제거
-    masked = raw[tcols]
-    if baseline > 0:
-        masked = masked.mask(masked < baseline, 0.0)
-    keep = [c for c in tcols if (masked[c].fillna(0) != 0).any()]
-    export = pd.concat([raw[["Sample_ID"]], masked[keep]], axis=1)
-    dropped = len(tcols) - len(keep)
-    st.success(f"샘플 {export.shape[0]}개 × 시간점 {len(keep)}개"
-               + (f" (0열 {dropped}개 제거)" if dropped else ""))
-
-    base = gf.name.rsplit(".", 1)[0]
-    buf = io.BytesIO()
-    export.to_excel(buf, index=False)
-    st.download_button(
-        "💾 Excel 내려받기", buf.getvalue(), f"{base}.xlsx",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+# ----------------------------------------------------------------------------
+# 보조 도구 — HPLC 크로마토그램 → ML 매트릭스 (Hitachi Primaide / EZChrom CSV)
+# ----------------------------------------------------------------------------
+if st.session_state.mode == "hplc":
+    st.header("HPLC — 데이터 추출")
+    st.write("HPLC 소프트웨어에서 크로마토그램을 CSV로 Export한 파일들을 올리면, "
+             "행=샘플 · 열=머무름시간 매트릭스로 보여줍니다.")
+    hfiles = st.file_uploader("HPLC 크로마토그램 CSV (여러 개 선택 가능)",
+                              type=["csv"], accept_multiple_files=True)
+    if not hfiles:
+        st.info("CSV 파일을 올려주세요.")
+        st.stop()
+    blocks = {}
+    for f in hfiles:
+        name = f.name.split(".lcx")[0] if ".lcx" in f.name else f.name.rsplit(".", 1)[0]
+        d = parse_hplc_csv(f)
+        if len(d):
+            blocks[name] = d
+    if not blocks:
+        st.error("크로마토그램 데이터를 읽지 못했습니다.")
+        st.stop()
+    out_base = list(blocks)[0] if len(blocks) == 1 else "HPLC_data"
+    render_chromatogram_matrix(blocks, out_base)
     st.stop()
 
 
