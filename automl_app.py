@@ -373,7 +373,11 @@ def parse_hplc_csv(file):
 
 def render_chromatogram_matrix(blocks, out_base, xlabel="Retention time (min)"):
     """크로마토그램 blocks({샘플:Time·Intensity}) 공용 처리: 그래프 + 베이스라인 + Excel."""
-    baseline = _num(st.text_input("베이스라인 제거 — 최소 강도 (이 값 미만은 0)", value="0"))
+    use_baseline = st.checkbox("베이스라인 제거", value=False)
+    baseline = 0.0
+    if use_baseline:
+        baseline = _num(st.text_input("최소 강도 — 이 값 미만은 0으로 (음수 포함)",
+                                      value="0"))
     with st.spinner("처리 중..."):
         raw = gc_to_matrix(blocks, tol=0.005, baseline=0)   # RT 0.005 자동 정렬 · 원본
     tcols = [c for c in raw.columns if c != "Sample_ID"]
@@ -385,7 +389,7 @@ def render_chromatogram_matrix(blocks, out_base, xlabel="Retention time (min)"):
     for i, (_, row) in enumerate(raw.iterrows()):
         ax.plot(tvals, row[tcols].to_numpy(dtype=float),
                 color=palette[i % len(palette)], linewidth=0.7, label=row["Sample_ID"])
-    if baseline > 0:
+    if use_baseline:
         ax.axhline(baseline, color="red", linewidth=0.6, linestyle="--",
                    label=f"baseline = {baseline:g}")
     ax.set_xlabel(xlabel, fontsize=AX_FS)
@@ -398,7 +402,7 @@ def render_chromatogram_matrix(blocks, out_base, xlabel="Retention time (min)"):
     st.pyplot(fig)
 
     masked = raw[tcols]
-    if baseline > 0:
+    if use_baseline:
         masked = masked.mask(masked < baseline, 0.0)
     keep = [c for c in tcols if (masked[c].fillna(0) != 0).any()]
     export = pd.concat([raw[["Sample_ID"]], masked[keep]], axis=1)
