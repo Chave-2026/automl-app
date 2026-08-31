@@ -848,6 +848,7 @@ if st.session_state.mode == "gc":
                               value="0.005"))
     baseline = _num(oc2.text_input("베이스라인 제거 — 최소 강도 (이 값 미만은 0)",
                                    value="0"))
+    log_y = st.checkbox("y축 로그 스케일 (베이스라인 위치를 보기 쉬움)", value=True)
     if tol <= 0:
         tol = 0.005
     with st.spinner("처리 중..."):
@@ -863,8 +864,10 @@ if st.session_state.mode == "gc":
         ax.plot(tvals, row[tcols].to_numpy(dtype=float),
                 color=palette[i % len(palette)], linewidth=0.7, label=row["Sample_ID"])
     if baseline > 0:
-        ax.axhline(baseline, color="red", linewidth=1.2, linestyle="--",
+        ax.axhline(baseline, color="red", linewidth=1.0, linestyle="--",
                    label=f"baseline = {baseline:g}")
+    if log_y:
+        ax.set_yscale("log")
     ax.set_xlabel("Retention time (min)", fontsize=AX_FS)
     ax.set_ylabel("Intensity", fontsize=AX_FS)
     ax.yaxis.set_major_formatter(EngFormatter())   # 1e7 대신 10M, 20M …
