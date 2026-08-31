@@ -289,6 +289,19 @@ def _read_tsv_spectrum(f):
     return df.dropna(subset=["Wavenumber", "Intensity"])
 
 
+def parse_enose_xml(file):
+    """전자코 단일 .xml → 좌표값 DataFrame(Time·센서1·센서2).
+    Heracles Neo 형식: <SensorAcqTime Time="t"><Voltages S1=".." S2=".."/> 반복."""
+    raw = file.getvalue().decode("utf-8", errors="replace")
+    rows = re.findall(
+        r'<SensorAcqTime Time="([^"]*)"><Voltages S1="([^"]*)" S2="([^"]*)"', raw)
+    df = pd.DataFrame(rows, columns=["Time", "S1", "S2"]).astype(float)
+    names = {int(i): n for i, n in
+             re.findall(r'SensorIndex="(\d)"\s+SensorName="([^"]*)"', raw)}
+    df = df.rename(columns={"S1": names.get(1, "S1"), "S2": names.get(2, "S2")})
+    return df
+
+
 def parse_enose_txt(file):
     """전자코 모음 .txt(탭 구분, 피크 면적) → 행=샘플·열=피크 DataFrame.
     샘플 ID 끝의 running 번호(_x)와 피크 컬럼의 '-Area' 접미사를 제거해 간결화."""
@@ -436,6 +449,18 @@ with st.sidebar:
                      else "secondary"):
             st.session_state.mode = "ftir_graph"
             st.rerun()
+    if st.session_state.mode in ("enose", "enose_xml"):
+        st.markdown("**전자코 도구**")
+        if st.button("모음 피크 표 (TXT)", width="stretch", key="nav_enose_txt",
+                     type="primary" if st.session_state.mode == "enose"
+                     else "secondary"):
+            st.session_state.mode = "enose"
+            st.rerun()
+        if st.button("좌표값 추출 (XML)", width="stretch", key="nav_enose_xml",
+                     type="primary" if st.session_state.mode == "enose_xml"
+                     else "secondary"):
+            st.session_state.mode = "enose_xml"
+            st.rerun()
 if st.session_state.mode is None:
     # 이 화면에서만 주입되는 랜딩 전용 스타일 (컬럼을 카드처럼)
     st.markdown("""
@@ -509,7 +534,7 @@ if st.session_state.mode is None:
     with t2:
         st.markdown('<div class="aml-tool-emoji">👃</div>'
                     '<div class="aml-tool-title">전자코</div>', unsafe_allow_html=True)
-        st.caption(".txt → .xlsx")
+        st.caption(".txt 피크 표 / .xml 좌표값")
         if st.button("변환하기", key="tool_enose", width="stretch"):
             st.session_state.mode = "enose"
             st.rerun()
@@ -714,6 +739,36 @@ if st.session_state.mode == "enose":
     base = tf.name.rsplit(".", 1)[0]
     buf = io.BytesIO()
     out.to_excel(buf, index=False)
+    st.download_button(
+        "💾 Excel 내려받기", buf.getvalue(), f"{base}.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.stop()
+
+
+# ----------------------------------------------------------------------------
+# 보조 도구 — 전자코 단일 XML 좌표값 추출
+# ----------------------------------------------------------------------------
+if st.session_state.mode == "enose_xml":
+    st.header("전자코 — 좌표값 추출 (단일 XML)")
+    st.write("전자코가 내보낸 **단일 .xml** 파일을 올리면, "
+             "Time과 두 센서 신호를 **좌표값 표**로 추출합니다.")
+    xf = st.file_uploader("전자코 .xml 파일", type=["xml"])
+    if xf is None:
+        st.info(".xml 파일을 올려주세요.")
+        st.stop()
+    try:
+        edf = parse_enose_xml(xf)
+    except Exception as e:
+        st.error(f"읽기 실패: {e}")
+        st.stop()
+    if edf.empty:
+        st.error("좌표값을 찾지 못했습니다. (지원 형식: Heracles Neo XML)")
+        st.stop()
+    st.success(f"좌표 {edf.shape[0]}개 · 열: {', '.join(edf.columns)}")
+    st.dataframe(edf, width="stretch")
+    base = xf.name.rsplit(".", 1)[0]
+    buf = io.BytesIO()
+    edf.to_excel(buf, index=False)
     st.download_button(
         "💾 Excel 내려받기", buf.getvalue(), f"{base}.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
