@@ -451,15 +451,15 @@ with st.sidebar:
             st.rerun()
     if st.session_state.mode in ("enose", "enose_xml"):
         st.markdown("**전자코 도구**")
-        if st.button("모음 피크 표 (TXT)", width="stretch", key="nav_enose_txt",
-                     type="primary" if st.session_state.mode == "enose"
-                     else "secondary"):
-            st.session_state.mode = "enose"
-            st.rerun()
         if st.button("좌표값 추출 (XML)", width="stretch", key="nav_enose_xml",
                      type="primary" if st.session_state.mode == "enose_xml"
                      else "secondary"):
             st.session_state.mode = "enose_xml"
+            st.rerun()
+        if st.button("모음 피크 표 (TXT)", width="stretch", key="nav_enose_txt",
+                     type="primary" if st.session_state.mode == "enose"
+                     else "secondary"):
+            st.session_state.mode = "enose"
             st.rerun()
 if st.session_state.mode is None:
     # 이 화면에서만 주입되는 랜딩 전용 스타일 (컬럼을 카드처럼)
@@ -534,9 +534,9 @@ if st.session_state.mode is None:
     with t2:
         st.markdown('<div class="aml-tool-emoji">👃</div>'
                     '<div class="aml-tool-title">전자코</div>', unsafe_allow_html=True)
-        st.caption(".txt 피크 표 / .xml 좌표값")
+        st.caption(".xml 좌표값 / .txt 피크 표")
         if st.button("변환하기", key="tool_enose", width="stretch"):
-            st.session_state.mode = "enose"
+            st.session_state.mode = "enose_xml"
             st.rerun()
     with t3:
         st.markdown('<div class="aml-tool-emoji">🧪</div>'
@@ -750,8 +750,8 @@ if st.session_state.mode == "enose":
 # ----------------------------------------------------------------------------
 if st.session_state.mode == "enose_xml":
     st.header("전자코 — 좌표값 추출 (단일 XML)")
-    st.write("전자코가 내보낸 **단일 .xml** 파일을 올리면, "
-             "Time과 두 센서 신호를 **좌표값 표**로 추출합니다.")
+    st.write("전자코가 내보낸 .xml 파일을 올리면, "
+             "Time과 두 센서 신호를 x,y 좌표값으로 추출합니다.")
     xf = st.file_uploader("전자코 .xml 파일", type=["xml"])
     if xf is None:
         st.info(".xml 파일을 올려주세요.")
