@@ -870,7 +870,8 @@ if st.session_state.mode == "enose":
     maxa = tdf[peak_cols].max(axis=0)            # 피크별 최대 면적
 
     min_area = _num(st.text_input(
-        "최소 피크 면적 (최대 면적이 이 값 미만이면 제거)", value="0"))
+        "최소 피크 면적 — 모든 샘플에서 이 값 미만인 피크(열)만 통째로 제거 "
+        "(유지된 피크 안의 작은 개별 값은 그대로 표시)", value="0"))
     keep = [c for c in peak_cols if maxa[c] >= min_area]
     out = tdf[["Sample_ID"] + keep]
     removed = len(peak_cols) - len(keep)
