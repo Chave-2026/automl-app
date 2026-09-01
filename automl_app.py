@@ -381,6 +381,7 @@ def parse_gc_chromatograms(file):
     return blocks
 
 
+@st.cache_data(show_spinner=False)
 def gc_to_matrix(blocks, tol=0.005, baseline=0.0):
     """{샘플: Time·Intensity} → 행=샘플·열=머무름시간 의 ML용 매트릭스.
     가장 긴 샘플의 시간축을 기준으로 나머지 샘플을 최근접(±tol분) 스냅 → 해상도 유지 +
@@ -448,10 +449,8 @@ def render_chromatogram_matrix(blocks, out_base, xlabel="Retention time (min)"):
                + (f" (0열 {dropped}개 제거)" if dropped else ""))
     if xfac > 1:
         st.caption(f"Excel 열 한도({XLSX_MAX_COLS})를 넘어 {xfac}배 구간평균으로 축소해 저장합니다.")
-    buf = io.BytesIO()
-    export.to_excel(buf, index=False)
     st.download_button(
-        "💾 Excel 내려받기", buf.getvalue(), f"{out_base}.xlsx",
+        "💾 Excel 내려받기", _df_to_xlsx_bytes(export), f"{out_base}.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
@@ -481,6 +480,50 @@ def _read_table(upload):
             df = pd.read_csv(upload, encoding="cp949")
     df.columns = df.columns.astype(str)
     return df
+
+
+# ----------------------------------------------------------------------------
+# 성능: 파싱·엑셀 생성 캐시 (Streamlit은 위젯 조작마다 스크립트를 재실행하므로,
+# 파일 내용이 같으면 재파싱·재생성하지 않도록 캐시해 열이 많을 때의 렉을 줄인다)
+# ----------------------------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def _df_to_xlsx_bytes(df):
+    """DataFrame → .xlsx 바이트. 캐시로 매 rerun 재생성 방지."""
+    buf = io.BytesIO()
+    df.to_excel(buf, index=False)
+    return buf.getvalue()
+
+
+@st.cache_data(show_spinner=False)
+def _parse_upload(kind, name, data):
+    """업로드 파일 파싱을 내용(bytes) 기준으로 캐시 — 같은 파일이면 재파싱 안 함."""
+    f = io.BytesIO(data)
+    f.name = name
+    if kind == "enose_txt":
+        return parse_enose_txt(f)
+    if kind == "gc":
+        return parse_gc_chromatograms(f)
+    if kind == "hplc":
+        return parse_hplc_csv(f)
+    if kind == "ftir_tsv":
+        return _read_tsv_spectrum(f)
+    raise ValueError(kind)
+
+
+PREVIEW_MAX_COLS = 200         # 미리보기에 표시할 최대 열 수 (전체는 다운로드 파일에 포함)
+
+
+def show_wide_preview(df, rows=None):
+    """열이 많은 표는 앞부분만 미리보기로 렌더해 브라우저 전송량을 줄인다.
+    rows=None이면 모든 행, 아니면 앞 rows행만. 전체 데이터는 내려받기 파일에 그대로."""
+    view = df if rows is None else df.head(rows)
+    ncol = df.shape[1]
+    if ncol > PREVIEW_MAX_COLS:
+        st.dataframe(view.iloc[:, :PREVIEW_MAX_COLS], width="stretch")
+        st.caption(f"열이 많아 앞 {PREVIEW_MAX_COLS}개만 미리보기로 표시합니다 "
+                   f"(전체 {ncol - 1}개 열은 내려받기 파일에 포함).")
+    else:
+        st.dataframe(view, width="stretch")
 
 
 def batch_predict_ui(pipe, red_info, feat_cols, tgt, task, key):
@@ -741,7 +784,7 @@ if st.session_state.mode == "ftir_convert":
     # 파일을 읽어 실제 파수 범위를 파악 → 최소/최대 기본값 자동 설정
     spectra = []
     for f in files:
-        d = _read_tsv_spectrum(f)
+        d = _parse_upload("ftir_tsv", f.name, f.getvalue())
         if len(d):
             spectra.append((f.name.rsplit(".", 1)[0], d))
     if not spectra:
@@ -765,11 +808,9 @@ if st.session_state.mode == "ftir_convert":
             if xfac > 1:
                 st.caption(f"Excel 열 한도({XLSX_MAX_COLS})를 넘어 {xfac}배 "
                            "구간평균으로 축소해 저장합니다.")
-            st.dataframe(final.head(10), width="stretch")
-            buf = io.BytesIO()
-            final.to_excel(buf, index=False)
+            show_wide_preview(final, rows=10)
             st.download_button(
-                "💾 Excel 내려받기", buf.getvalue(), "FTIR_ML_data.xlsx",
+                "💾 Excel 내려받기", _df_to_xlsx_bytes(final), "FTIR_ML_data.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         except Exception as e:
             st.error(f"변환 실패: {e}")
@@ -790,7 +831,7 @@ if st.session_state.mode == "ftir_graph":
 
     specs = {}
     for f in gfiles:
-        d = _read_tsv_spectrum(f).sort_values("Wavenumber")
+        d = _parse_upload("ftir_tsv", f.name, f.getvalue()).sort_values("Wavenumber")
         if len(d):
             specs[f.name.rsplit(".", 1)[0]] = d
     if not specs:
@@ -861,7 +902,7 @@ if st.session_state.mode == "enose":
         st.info(".txt 파일을 올려주세요.")
         st.stop()
     try:
-        tdf = parse_enose_txt(tf)
+        tdf = _parse_upload("enose_txt", tf.name, tf.getvalue())
     except Exception as e:
         st.error(f"읽기 실패: {e}")
         st.stop()
@@ -877,13 +918,11 @@ if st.session_state.mode == "enose":
     removed = len(peak_cols) - len(keep)
     st.success(f"샘플 {out.shape[0]}개 · 피크 {len(keep)}개 유지"
                + (f" (노이즈 {removed}개 제거)" if removed else ""))
-    st.dataframe(out, width="stretch")
+    show_wide_preview(out)
 
     base = tf.name.rsplit(".", 1)[0]
-    buf = io.BytesIO()
-    out.to_excel(buf, index=False)
     st.download_button(
-        "💾 Excel 내려받기", buf.getvalue(), f"{base}.xlsx",
+        "💾 Excel 내려받기", _df_to_xlsx_bytes(out), f"{base}.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.stop()
 
@@ -908,7 +947,7 @@ if st.session_state.mode == "enose_xml":
         st.error("좌표값을 찾지 못했습니다. (지원 형식: Heracles Neo XML)")
         st.stop()
     st.success(f"좌표 {edf.shape[0]}개 · 열: {', '.join(edf.columns)}")
-    st.dataframe(edf, width="stretch")
+    show_wide_preview(edf)
     base = xf.name.rsplit(".", 1)[0]
     # Excel: 두 센서를 한 줄(1 샘플)로 이어붙임. Excel 열 제한(16384)에 맞춰 필요시 구간평균 축소.
     time = edf["Time"].to_numpy()
@@ -928,10 +967,8 @@ if st.session_state.mode == "enose_xml":
     row.insert(0, "Sample_ID", base)
     if factor > 1:
         st.caption(f"Excel 열 제한으로 {factor}배 구간평균 축소되어 저장됩니다 (센서당 {len(time)}점).")
-    buf = io.BytesIO()
-    row.to_excel(buf, index=False)
     st.download_button(
-        "💾 Excel 내려받기", buf.getvalue(), f"{base}.xlsx",
+        "💾 Excel 내려받기", _df_to_xlsx_bytes(row), f"{base}.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.stop()
 
@@ -948,7 +985,7 @@ if st.session_state.mode == "gc":
         st.info("CHROMTAB CSV 파일을 올려주세요.")
         st.stop()
     try:
-        blocks = parse_gc_chromatograms(gf)
+        blocks = _parse_upload("gc", gf.name, gf.getvalue())
     except Exception as e:
         st.error(f"읽기 실패: {e}")
         st.stop()
@@ -975,7 +1012,7 @@ if st.session_state.mode == "hplc":
     blocks = {}
     for f in hfiles:
         name = f.name.split(".lcx")[0] if ".lcx" in f.name else f.name.rsplit(".", 1)[0]
-        d = parse_hplc_csv(f)
+        d = _parse_upload("hplc", f.name, f.getvalue())
         if len(d):
             blocks[name] = d
     if not blocks:
@@ -1012,13 +1049,26 @@ else:
 
 st.subheader("데이터 미리보기")
 st.write(f"출처: **{source}**  ·  {df.shape[0]}행 × {df.shape[1]}열")
-st.dataframe(df.head(10), width="stretch")
+show_wide_preview(df, rows=10)
 
 with st.sidebar:
     st.header("2) 변수 선택")
     target = st.selectbox("타깃(예측할 값)", df.columns, index=len(df.columns) - 1)
     feature_candidates = [c for c in df.columns if c != target]
-    features = st.multiselect("입력 변수", feature_candidates, default=feature_candidates)
+    # 스펙트럼 열이 매우 많으면(예: 파수·시간축 수천~수만 개) multiselect에 칩을
+    # 전부 그리면 브라우저가 느려진다 → '전체 사용' 체크박스 + 스펙트럼 외 열만 선택.
+    spec_cands = spectral_columns(feature_candidates)
+    if len(spec_cands) > 50:
+        spec_set = set(spec_cands)
+        other_cands = [c for c in feature_candidates if c not in spec_set]
+        use_spec = st.checkbox(f"모든 스펙트럼 열 사용 ({len(spec_cands)}개)", value=True)
+        chosen_other = st.multiselect("추가 입력 변수 (스펙트럼 외 열)", other_cands,
+                                      default=other_cands)
+        features = (spec_cands if use_spec else []) + chosen_other
+        st.caption("스펙트럼 열이 많아 개별 선택 대신 일괄 사용으로 표시합니다.")
+    else:
+        features = st.multiselect("입력 변수", feature_candidates,
+                                  default=feature_candidates)
 
     # 숫자형 타깃은 기본 회귀, 문자형이거나 값이 2종뿐이면 분류로 자동 판별
     y_raw = df[target]
