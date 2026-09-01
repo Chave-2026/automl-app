@@ -526,6 +526,24 @@ def show_wide_preview(df, rows=None):
         st.dataframe(view, width="stretch")
 
 
+def detect_id_column(df):
+    """맨 앞 열이 샘플 이름/ID로 보이면 그 열 이름을 반환, 아니면 None.
+    판정: 이름이 sample/id/name/샘플/이름 계열이거나,
+    (비숫자이면서 값이 대부분 고유)한 식별자 형태일 때."""
+    if df.shape[1] < 2:
+        return None
+    first = df.columns[0]
+    name = str(first).strip().lower()
+    if (name in ("sample_id", "sample", "sampleid", "id", "name", "sample name",
+                 "샘플", "샘플명", "이름") or name.startswith("sample")):
+        return first
+    col = df[first]
+    if (not pd.api.types.is_numeric_dtype(col)
+            and col.nunique(dropna=True) >= 0.9 * len(col)):
+        return first
+    return None
+
+
 def batch_predict_ui(pipe, red_info, feat_cols, tgt, task, key):
     orig = red_info["orig_features"]
     factor = red_info["factor"]
@@ -1055,6 +1073,15 @@ with st.sidebar:
     st.header("2) 변수 선택")
     target = st.selectbox("타깃(예측할 값)", df.columns, index=len(df.columns) - 1)
     feature_candidates = [c for c in df.columns if c != target]
+    # 맨 앞 열이 샘플 이름(Sample_ID 등)으로 보이면 입력 변수에서 자동 제외
+    id_col = detect_id_column(df)
+    if id_col and id_col != target:
+        use_id = st.checkbox(f"1열 '{id_col}'도 입력 변수로 사용", value=False,
+                             help="맨 앞 열을 샘플 이름으로 보고 기본 제외합니다. "
+                                  "실제 변수라면 체크하세요.")
+        if not use_id:
+            feature_candidates = [c for c in feature_candidates if c != id_col]
+            st.caption(f"🏷️ 1열 '{id_col}'을 샘플 이름으로 보고 입력 변수에서 제외했습니다.")
     # 스펙트럼 열이 매우 많으면(예: 파수·시간축 수천~수만 개) multiselect에 칩을
     # 전부 그리면 브라우저가 느려진다 → '전체 사용' 체크박스 + 스펙트럼 외 열만 선택.
     spec_cands = spectral_columns(feature_candidates)
