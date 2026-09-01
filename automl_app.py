@@ -97,8 +97,21 @@ def _as_float(name):
         return None
 
 
+def _spec_key(name):
+    """스펙트럼 열 정렬키 (센서, 시간). 순수 숫자 열('1200.0')과
+    전자코 '센서-시간' 열('1-0.5', '2-3.25')을 모두 인식·정렬한다.
+    스펙트럼 열이 아니면 None."""
+    v = _as_float(name)
+    if v is not None:
+        return (0, v)                 # 순수 숫자 열: 센서 0으로 묶음
+    m = re.fullmatch(r"(\d+)-(\d+(?:\.\d+)?)", str(name))
+    if m:
+        return (int(m.group(1)), float(m.group(2)))
+    return None
+
+
 def spectral_columns(feature_cols):
-    return [c for c in feature_cols if _as_float(c) is not None]
+    return [c for c in feature_cols if _spec_key(c) is not None]
 
 
 def auto_factor(n_spec, target=SPEC_TARGET):
@@ -112,11 +125,14 @@ def reduce_spectral(df, feature_cols, factor):
     others = [c for c in feature_cols if c not in spec]
     if factor <= 1 or len(spec) < 2 * factor:
         return df[feature_cols].copy(), list(feature_cols)
-    spec_sorted = sorted(spec, key=_as_float)
+    spec_sorted = sorted(spec, key=_spec_key)
     out, new_cols = {}, []
     for i in range(0, len(spec_sorted), factor):
         grp = spec_sorted[i:i + factor]
-        name = f"{np.mean([_as_float(c) for c in grp]):.1f}"
+        keys = [_spec_key(c) for c in grp]
+        sensor = keys[0][0]           # 그룹 대표 센서 (정렬상 같은 센서끼리 묶임)
+        mt = np.mean([k[1] for k in keys])
+        name = f"{mt:.1f}" if sensor == 0 else f"{sensor}-{mt:.1f}"
         out[name] = df[grp].mean(axis=1)
         new_cols.append(name)
     res = pd.DataFrame(out, index=df.index)
@@ -132,7 +148,7 @@ def apply_preprocess(df, feature_cols, opts):
     spec = spectral_columns(feature_cols)
     if not spec or not (opts.get("snv") or opts.get("sg")):
         return df[feature_cols].copy()
-    spec_sorted = sorted(spec, key=_as_float)
+    spec_sorted = sorted(spec, key=_spec_key)
     M = df[spec_sorted].to_numpy(dtype=float)
     if opts.get("snv"):   # 산란 보정: 행별 평균 0, 표준편차 1
         mu = M.mean(axis=1, keepdims=True)
@@ -156,6 +172,26 @@ def prepare_X(df, feature_cols, factor, opts):
     """전처리(SNV/SG) → 스펙트럼 축소 순으로 적용해 최종 입력행렬을 만든다."""
     dfp = apply_preprocess(df, feature_cols, opts)
     return reduce_spectral(dfp, feature_cols, factor)
+
+
+XLSX_MAX_COLS = 16384          # Excel(.xlsx) 파일의 최대 열 수
+
+
+def fit_excel_width(export, id_col="Sample_ID"):
+    """행=샘플·열=스펙트럼(파수/시간) 매트릭스가 Excel 열 한도를 넘으면,
+    인접 스펙트럼 열을 필요한 배수(factor)만큼 구간평균으로 묶어 한도 안에 맞춘다.
+    id_col은 그대로 두고, 축소된 열 이름은 그룹 평균값(숫자)으로 재명명한다.
+    반환: (축소된 DataFrame, factor). 한도 이내면 원본을 그대로(factor=1) 반환."""
+    spec = [c for c in export.columns if c != id_col]
+    factor = math.ceil(len(spec) / (XLSX_MAX_COLS - 1))   # 최소 2배부터 (초과 시에만)
+    if factor <= 1:
+        return export, 1
+    out = {id_col: export[id_col].values}
+    for i in range(0, len(spec), factor):
+        grp = spec[i:i + factor]
+        name = round(float(np.mean([float(c) for c in grp])), 4)
+        out[name] = export[grp].mean(axis=1).values
+    return pd.DataFrame(out), factor
 
 
 # ----------------------------------------------------------------------------
@@ -407,8 +443,11 @@ def render_chromatogram_matrix(blocks, out_base, xlabel="Retention time (min)"):
     keep = [c for c in tcols if (masked[c].fillna(0) != 0).any()]
     export = pd.concat([raw[["Sample_ID"]], masked[keep]], axis=1)
     dropped = len(tcols) - len(keep)
-    st.success(f"샘플 {export.shape[0]}개 × 시간점 {len(keep)}개"
+    export, xfac = fit_excel_width(export)          # Excel 열 한도 초과 시 구간평균 축소
+    st.success(f"샘플 {export.shape[0]}개 × 시간점 {export.shape[1] - 1}개"
                + (f" (0열 {dropped}개 제거)" if dropped else ""))
+    if xfac > 1:
+        st.caption(f"Excel 열 한도({XLSX_MAX_COLS})를 넘어 {xfac}배 구간평균으로 축소해 저장합니다.")
     buf = io.BytesIO()
     export.to_excel(buf, index=False)
     st.download_button(
@@ -721,7 +760,11 @@ if st.session_state.mode == "ftir_convert":
         try:
             with st.spinner("변환 중..."):
                 final = ftir_specs_to_excel(spectra, wn_min, wn_max)
+                final, xfac = fit_excel_width(final)   # Excel 열 한도 초과 시 구간평균 축소
             st.success(f"완료! 샘플 {final.shape[0]}개 × 파수 {final.shape[1] - 1}개")
+            if xfac > 1:
+                st.caption(f"Excel 열 한도({XLSX_MAX_COLS})를 넘어 {xfac}배 "
+                           "구간평균으로 축소해 저장합니다.")
             st.dataframe(final.head(10), width="stretch")
             buf = io.BytesIO()
             final.to_excel(buf, index=False)
@@ -877,8 +920,9 @@ if st.session_state.mode == "enose_xml":
         time = time[:m].reshape(-1, factor).mean(1)
         s1 = s1[:m].reshape(-1, factor).mean(1)
         s2 = s2[:m].reshape(-1, factor).mean(1)
-    off = math.ceil(float(time.max())) + 1        # 2번 센서 시간축을 뒤로 밀어 열 이름 충돌 방지
-    cols = [round(float(t), 3) for t in time] + [round(float(t) + off, 3) for t in time]
+    # 센서1은 '1-시간', 센서2는 '2-시간' 으로 이름 붙여 한 줄(1 샘플)로 이어붙임.
+    cols = ([f"1-{round(float(t), 3)}" for t in time]
+            + [f"2-{round(float(t), 3)}" for t in time])
     row = pd.DataFrame([list(s1) + list(s2)], columns=cols)
     row.insert(0, "Sample_ID", base)
     if factor > 1:
