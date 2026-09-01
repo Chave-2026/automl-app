@@ -1073,15 +1073,10 @@ with st.sidebar:
     st.header("2) 변수 선택")
     target = st.selectbox("타깃(예측할 값)", df.columns, index=len(df.columns) - 1)
     feature_candidates = [c for c in df.columns if c != target]
-    # 맨 앞 열이 샘플 이름(Sample_ID 등)으로 보이면 입력 변수에서 자동 제외
+    # 맨 앞 열이 샘플 이름(Sample_ID 등)으로 보이면 입력 변수 후보에서 조용히 제외
     id_col = detect_id_column(df)
     if id_col and id_col != target:
-        use_id = st.checkbox(f"1열 '{id_col}'도 입력 변수로 사용", value=False,
-                             help="맨 앞 열을 샘플 이름으로 보고 기본 제외합니다. "
-                                  "실제 변수라면 체크하세요.")
-        if not use_id:
-            feature_candidates = [c for c in feature_candidates if c != id_col]
-            st.caption(f"🏷️ 1열 '{id_col}'을 샘플 이름으로 보고 입력 변수에서 제외했습니다.")
+        feature_candidates = [c for c in feature_candidates if c != id_col]
     # 스펙트럼 열이 매우 많으면(예: 파수·시간축 수천~수만 개) multiselect에 칩을
     # 전부 그리면 브라우저가 느려진다 → '전체 사용' 체크박스 + 스펙트럼 외 열만 선택.
     spec_cands = spectral_columns(feature_candidates)
@@ -1092,7 +1087,6 @@ with st.sidebar:
         chosen_other = st.multiselect("추가 입력 변수 (스펙트럼 외 열)", other_cands,
                                       default=other_cands)
         features = (spec_cands if use_spec else []) + chosen_other
-        st.caption("스펙트럼 열이 많아 개별 선택 대신 일괄 사용으로 표시합니다.")
     else:
         features = st.multiselect("입력 변수", feature_candidates,
                                   default=feature_candidates)
@@ -1114,7 +1108,7 @@ with st.sidebar:
     if n_spec >= SPEC_MIN:
         max_fac = max(2, n_spec // 50)             # 최소 ~50개는 남도록 상한
         spec_factor = _int_clamp(st.text_input(
-            "스펙트럼 축소 배수 (N개마다 구간 평균 · 1=축소 안 함)",
+            "스펙트럼 축소 배수 (N개마다 구간 평균)",
             value=str(min(5, max_fac)),
             help="입력 스펙트럼 열을 N개씩 평균해 묶습니다. "
                  "축소 후 개수 ≈ (스펙트럼 열 수 ÷ N). SNV/SG 전처리는 축소 전에 적용됩니다."),
