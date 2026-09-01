@@ -866,8 +866,25 @@ if st.session_state.mode == "enose_xml":
     st.success(f"좌표 {edf.shape[0]}개 · 열: {', '.join(edf.columns)}")
     st.dataframe(edf, width="stretch")
     base = xf.name.rsplit(".", 1)[0]
+    # Excel: 두 센서를 한 줄(1 샘플)로 이어붙임. Excel 열 제한(16384)에 맞춰 필요시 구간평균 축소.
+    time = edf["Time"].to_numpy()
+    s1 = edf.iloc[:, 1].to_numpy()
+    s2 = edf.iloc[:, 2].to_numpy()
+    n = len(time)
+    factor = max(1, math.ceil(2 * n / 16000))
+    if factor > 1:
+        m = (n // factor) * factor
+        time = time[:m].reshape(-1, factor).mean(1)
+        s1 = s1[:m].reshape(-1, factor).mean(1)
+        s2 = s2[:m].reshape(-1, factor).mean(1)
+    off = math.ceil(float(time.max())) + 1        # 2번 센서 시간축을 뒤로 밀어 열 이름 충돌 방지
+    cols = [round(float(t), 3) for t in time] + [round(float(t) + off, 3) for t in time]
+    row = pd.DataFrame([list(s1) + list(s2)], columns=cols)
+    row.insert(0, "Sample_ID", base)
+    if factor > 1:
+        st.caption(f"Excel 열 제한으로 {factor}배 구간평균 축소되어 저장됩니다 (센서당 {len(time)}점).")
     buf = io.BytesIO()
-    edf.to_excel(buf, index=False)
+    row.to_excel(buf, index=False)
     st.download_button(
         "💾 Excel 내려받기", buf.getvalue(), f"{base}.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
