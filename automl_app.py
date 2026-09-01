@@ -1083,13 +1083,21 @@ with st.sidebar:
     # 스펙트럼으로 인식되면 SNV는 자동 적용(축소 전)
     n_spec = len(spectral_columns(features))
     preprocess = {"snv": True} if n_spec >= SPEC_MIN else {}
+    spec_factor = 1
     if n_spec >= SPEC_MIN:
-        if n_spec > SPEC_TARGET:
-            fac = auto_factor(n_spec)
-            st.caption(f"🧬 스펙트럼 {n_spec}개 감지 → SNV 자동 적용 + 자동 축소 1/{fac} "
-                       f"(약 {math.ceil(n_spec / fac)}개, 구간 평균)")
+        default_fac = auto_factor(n_spec)          # 기존 자동값(≈1000개 목표)
+        max_fac = max(2, n_spec // 50)             # 최소 ~50개는 남도록 상한
+        spec_factor = int(st.number_input(
+            "스펙트럼 축소 배수 (N개마다 구간 평균 · 1=축소 안 함)",
+            min_value=1, max_value=max_fac, value=min(default_fac, max_fac), step=1,
+            help="입력 스펙트럼 열을 N개씩 평균해 묶습니다. "
+                 "축소 후 개수 ≈ (스펙트럼 열 수 ÷ N). SNV/SG 전처리는 축소 전에 적용됩니다."))
+        kept = math.ceil(n_spec / spec_factor)
+        if spec_factor > 1:
+            st.caption(f"🧬 스펙트럼 {n_spec}개 → SNV 자동 적용 + 1/{spec_factor} 축소 "
+                       f"(약 {kept}개, 구간 평균)")
         else:
-            st.caption(f"🧬 스펙트럼 {n_spec}개 감지 → SNV 자동 적용")
+            st.caption(f"🧬 스펙트럼 {n_spec}개 감지 → SNV 자동 적용 (축소 없음)")
 
     st.caption("모델 예측 + 5-fold 교차검증")
     run = st.button("🚀 학습 시작", type="primary", width="stretch")
@@ -1116,7 +1124,7 @@ with st.expander(_dc_title, expanded=bool(_issues)):
 # ----------------------------------------------------------------------------
 # 학습 — 테스트(80/20) + 5-fold 교차검증
 # ----------------------------------------------------------------------------
-def run_training(df, features, target, task, preprocess):
+def run_training(df, features, target, task, preprocess, factor=None):
     data = df[features + [target]].dropna(subset=[target]).copy()
     if task == "회귀":
         data[target] = pd.to_numeric(data[target], errors="coerce")
@@ -1125,7 +1133,8 @@ def run_training(df, features, target, task, preprocess):
     if task == "분류":
         y = y.astype(str)
 
-    factor = auto_factor(len(spectral_columns(features)))
+    if factor is None:                     # 미지정 시 기존 자동 배수 사용(하위호환)
+        factor = auto_factor(len(spectral_columns(features)))
     X, feat_used = prepare_X(data, features, factor, preprocess)
     reduce_info = {"orig_features": list(features), "factor": factor,
                    "preprocess": preprocess, "used_features": feat_used}
@@ -1318,7 +1327,8 @@ if run:
     for m in diagnose_target(df[target], task):
         st.warning(m)
     st.session_state.pop("sg_re", None)   # 이전 SG 재분석 결과 초기화
-    st.session_state["result"] = run_training(df, features, target, task, preprocess)
+    st.session_state["result"] = run_training(df, features, target, task, preprocess,
+                                              spec_factor)
 
 if "result" not in st.session_state:
     st.info("왼쪽에서 변수 및 타깃을 고르고 **🚀 학습 시작**을 눌러주세요.")
@@ -1477,7 +1487,7 @@ if len(spectral_columns(reduce_info["orig_features"])) >= SPEC_MIN:
                 "sg_deriv": sg_deriv}
         st.session_state["sg_re"] = {
             "deriv": sg_deriv,
-            "result": run_training(df, features, target, task, sgpp)}
+            "result": run_training(df, features, target, task, sgpp, spec_factor)}
 
     sg_re = st.session_state.get("sg_re")
     if sg_re:
