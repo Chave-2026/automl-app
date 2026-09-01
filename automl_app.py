@@ -1085,13 +1085,13 @@ with st.sidebar:
     preprocess = {"snv": True} if n_spec >= SPEC_MIN else {}
     spec_factor = 1
     if n_spec >= SPEC_MIN:
-        default_fac = auto_factor(n_spec)          # 기존 자동값(≈1000개 목표)
         max_fac = max(2, n_spec // 50)             # 최소 ~50개는 남도록 상한
-        spec_factor = int(st.number_input(
+        spec_factor = _int_clamp(st.text_input(
             "스펙트럼 축소 배수 (N개마다 구간 평균 · 1=축소 안 함)",
-            min_value=1, max_value=max_fac, value=min(default_fac, max_fac), step=1,
+            value=str(min(5, max_fac)),
             help="입력 스펙트럼 열을 N개씩 평균해 묶습니다. "
-                 "축소 후 개수 ≈ (스펙트럼 열 수 ÷ N). SNV/SG 전처리는 축소 전에 적용됩니다."))
+                 "축소 후 개수 ≈ (스펙트럼 열 수 ÷ N). SNV/SG 전처리는 축소 전에 적용됩니다."),
+            5, 1, max_fac)
         kept = math.ceil(n_spec / spec_factor)
         if spec_factor > 1:
             st.caption(f"🧬 스펙트럼 {n_spec}개 → SNV 자동 적용 + 1/{spec_factor} 축소 "
