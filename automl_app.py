@@ -1078,15 +1078,15 @@ with st.sidebar:
     if id_col and id_col != target:
         feature_candidates = [c for c in feature_candidates if c != id_col]
     # 스펙트럼 열이 매우 많으면(예: 파수·시간축 수천~수만 개) multiselect에 칩을
-    # 전부 그리면 브라우저가 느려진다 → '전체 사용' 체크박스 + 스펙트럼 외 열만 선택.
+    # 전부 그리면 브라우저가 느려진다 → 스펙트럼은 일괄 사용하고, 스펙트럼 외 열만 선택.
     spec_cands = spectral_columns(feature_candidates)
     if len(spec_cands) > 50:
         spec_set = set(spec_cands)
         other_cands = [c for c in feature_candidates if c not in spec_set]
-        use_spec = st.checkbox(f"모든 스펙트럼 열 사용 ({len(spec_cands)}개)", value=True)
         chosen_other = st.multiselect("추가 입력 변수 (스펙트럼 외 열)", other_cands,
                                       default=other_cands)
-        features = (spec_cands if use_spec else []) + chosen_other
+        features = spec_cands + chosen_other
+        st.caption(f"🧬 스펙트럼 {len(spec_cands)}개 인식")
     else:
         features = st.multiselect("입력 변수", feature_candidates,
                                   default=feature_candidates)
